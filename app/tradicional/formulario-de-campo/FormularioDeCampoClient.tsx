@@ -7,7 +7,9 @@ export default function FormularioDeCampoClient() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [usuarioId, setUsuarioId] = useState<string | null | undefined>(undefined);
+  const [usuarioId, setUsuarioId] = useState<string | null | undefined>(
+    undefined
+  );
 
   // Leer ?t=... desde la URL en el CLIENTE
   useEffect(() => {
@@ -91,7 +93,10 @@ export default function FormularioDeCampoClient() {
   // Mientras aún no sabemos el valor de t (primer render)
   if (usuarioId === undefined) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main
+        className="min-h-screen flex items-center justify-center bg-[#fde9d9]"
+        style={{ fontFamily: '"Times New Roman", Times, serif' }}
+      >
         <p>Cargando formulario...</p>
       </main>
     );
@@ -100,7 +105,10 @@ export default function FormularioDeCampoClient() {
   // Ya leímos la URL y NO hay t
   if (!usuarioId) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main
+        className="min-h-screen flex items-center justify-center bg-[#fde9d9]"
+        style={{ fontFamily: '"Times New Roman", Times, serif' }}
+      >
         <p>
           Link inválido. Falta el parámetro <code>t</code>.
         </p>
@@ -110,101 +118,130 @@ export default function FormularioDeCampoClient() {
 
   // Todo OK: mostramos el formulario
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#fde9d9] px-4">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-center text-2xl font-bold text-[#b1451b]">
+    <main
+      className="min-h-screen flex items-center justify-center bg-[#fde9d9] px-4"
+      style={{ fontFamily: '"Times New Roman", Times, serif' }}
+    >
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
+        <h1 className="text-center text-2xl sm:text-3xl font-bold text-[#d4551f]">
           REALTY GRUPO INMOBILIARIO
         </h1>
         <h2 className="text-center text-lg mt-1 mb-6 text-[#b1451b]">
-          Registro de Prospectos
+          Registro de prospectos de campo
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Lugar de prospección */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Lugar de prospección
             </label>
             <input
               name="lugarProspeccion"
               type="text"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="Ej: Jockey Plaza, Mercado Unicachi, Centro de Lima, etc."
             />
           </div>
 
+          {/* Nombre */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Nombre <span className="text-red-500">*</span>
             </label>
             <input
               name="nombre"
               required
               type="text"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
 
+          {/* Apellido */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Apellido <span className="text-red-500">*</span>
             </label>
             <input
               name="apellido"
               required
               type="text"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
 
+          {/* Celular */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Celular (Perú) <span className="text-red-500">*</span>
             </label>
             <input
               name="celular"
               required
               type="text"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="9 dígitos"
             />
           </div>
 
+          {/* Documento de identidad */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Documento de identidad
             </label>
             <input
               name="documentoIdentidad"
               type="text"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="DNI: 8 dígitos / CE: 9-12 dígitos"
             />
           </div>
 
+          {/* Correo electrónico */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Correo electrónico
             </label>
             <input
               name="email"
               type="email"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="nombre_del_correo@dominio.com"
             />
           </div>
 
+          {/* Proyecto de interés */}
           <div>
-            <label className="block font-semibold mb-1">
+            <label className="block font-semibold mb-1 text-black">
               Proyecto de interés
             </label>
-            <input
+            <select
               name="proyectoInteres"
-              type="text"
-              className="w-full border rounded-md px-3 py-2"
-            />
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              defaultValue="NINGUNO"
+            >
+              <option value="NINGUNO">NINGUNO</option>
+              <option value="Bosques de Calango">Bosques de Calango</option>
+              <option value="Asia Pacific Condominio">
+                Asia Pacific Condominio
+              </option>
+              <option value="Pachacamac Luxury">Pachacamac Luxury</option>
+              <option value="Paracas Realty Beach">Paracas Realty Beach</option>
+              <option value="Toscana Garden">Toscana Garden</option>
+              <option value="Buonavista">Buonavista</option>
+              <option value="Altavista">Altavista</option>
+            </select>
           </div>
 
+          {/* Presupuesto */}
           <div>
-            <label className="block font-semibold mb-1">Presupuesto</label>
+            <label className="block font-semibold mb-1 text-black">
+              Presupuesto
+            </label>
             <select
               name="presupuesto"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              defaultValue=""
             >
               <option value="">Selecciona</option>
               <option value="5000-25000">$5 000 – $25 000</option>
@@ -215,11 +252,15 @@ export default function FormularioDeCampoClient() {
             </select>
           </div>
 
+          {/* Modalidad de pago */}
           <div>
-            <label className="block font-semibold mb-1">Modalidad de pago</label>
+            <label className="block font-semibold mb-1 text-black">
+              Modalidad de pago
+            </label>
             <select
               name="modalidadPago"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              defaultValue=""
             >
               <option value="">Selecciona</option>
               <option value="financiado">Financiado</option>
@@ -229,12 +270,16 @@ export default function FormularioDeCampoClient() {
             </select>
           </div>
 
+          {/* Comentarios */}
           <div>
-            <label className="block font-semibold mb-1">Comentarios</label>
+            <label className="block font-semibold mb-1 text-black">
+              Comentario
+            </label>
             <textarea
               name="comentarios"
-              className="w-full border rounded-md px-3 py-2"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
               rows={3}
+              placeholder="Horarios de llamada, preferencia de comunicación, etc."
             />
           </div>
 
@@ -244,9 +289,9 @@ export default function FormularioDeCampoClient() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#d4551f] text-white py-2 rounded-md"
+            className="w-full bg-[#d4551f] hover:bg-[#b1451b] text-white font-semibold py-2 rounded-md disabled:opacity-60"
           >
-            {loading ? 'Registrando...' : 'Registrar'}
+            {loading ? 'REGISTRANDO...' : 'REGISTRAR'}
           </button>
         </form>
       </div>
