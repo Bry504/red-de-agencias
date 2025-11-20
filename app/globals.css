@@ -27,6 +27,6 @@ body {
 
 /* Gris claro para TODOS los placeholders */
 ::placeholder {
-  color: #e0e0e0a2; /* un gris suave */
+  color: #e0e0e053; /* un gris suave */
   opacity: 1;     /* evita que sea translúcido */
 }
