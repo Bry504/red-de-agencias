@@ -122,7 +122,7 @@ export default function FormularioDeCampoClient() {
       className="min-h-screen flex items-center justify-center bg-[#fde9d9] px-4"
       style={{ fontFamily: '"Times New Roman", Times, serif' }}
     >
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6 sm:p-8 max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-4 sm:p-6">
         <h1 className="text-center text-2xl sm:text-3xl font-bold text-[#d4551f]">
           REALTY GRUPO INMOBILIARIO
         </h1>
