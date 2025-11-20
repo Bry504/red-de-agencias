@@ -1,16 +1,25 @@
 // app/tradicional/formulario-de-campo/FormularioDeCampoClient.tsx
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
-type Props = {
-  usuarioId: string | null;
-};
-
-export default function FormularioDeCampoClient({ usuarioId }: Props) {
+export default function FormularioDeCampoClient() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [usuarioId, setUsuarioId] = useState<string | null | undefined>(undefined);
+
+  // Leer ?t=... desde la URL en el CLIENTE
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get('t');
+      setUsuarioId(t);
+    } catch (e) {
+      console.error('Error leyendo search params:', e);
+      setUsuarioId(null);
+    }
+  }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -79,6 +88,16 @@ export default function FormularioDeCampoClient({ usuarioId }: Props) {
     }
   };
 
+  // Mientras aún no sabemos el valor de t (primer render)
+  if (usuarioId === undefined) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <p>Cargando formulario...</p>
+      </main>
+    );
+  }
+
+  // Ya leímos la URL y NO hay t
   if (!usuarioId) {
     return (
       <main className="min-h-screen flex items-center justify-center">
@@ -89,6 +108,7 @@ export default function FormularioDeCampoClient({ usuarioId }: Props) {
     );
   }
 
+  // Todo OK: mostramos el formulario
   return (
     <main className="min-h-screen flex items-center justify-center bg-[#fde9d9] px-4">
       <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-8">
