@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     } = body;
 
     if (!usuarioId || !nombre || !apellido || !celular) {
-      return NextResponse.json({ error: 'Faltan campos obligatorios.' }, { status: 400 });
+      return NextResponse.json({ error: 'Faltan campos obligatorios (nombre, apellido o celular).' }, { status: 400 });
     }
 
     // ----------------------------------------------------------------------
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     if (exists) {
       return NextResponse.json(
-        { error: 'El número de celular ya está registrado.' },
+        { error: 'El número de celular ya está registrado en la Base de Datos.' },
         { status: 409 }
       );
     }
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     if (!usuario?.ghl_id) {
       return NextResponse.json(
-        { error: 'Usuario inválido o sin ghl_id asignado.' },
+        { error: 'Acceso revocado, muchas gracias.' },
         { status: 400 }
       );
     }

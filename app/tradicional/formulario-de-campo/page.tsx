@@ -44,7 +44,7 @@ export default function FormularioDeCampoPage({ searchParams }: Props) {
 
     setLoading(true);
     try {
-      const res = await fetch('/tradicional/formulario-de-campo', {
+      const res = await fetch('/api/tradicional/campo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -65,7 +65,7 @@ export default function FormularioDeCampoPage({ searchParams }: Props) {
       const json = await res.json();
 
       if (!res.ok) {
-        setError(json.error || 'Error al registrar el prospecto.');
+        setError(json.error || 'Error al registrar el prospecto, contáctese con Bryant Huamaní.');
       } else {
         setMsg('Prospecto registrado correctamente.');
         (e.target as HTMLFormElement).reset();
