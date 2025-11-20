@@ -71,24 +71,38 @@ export async function POST(req: NextRequest) {
     // 3. Obtener pipeline y stage desde GHL por nombre
     // ----------------------------------------------------------------------
     const pipelinesRes = await fetch(
-      `https://rest.gohighlevel.com/v1/pipelines/?locationId=${GHL_LOCATION_ID}`,
-      {
-        headers: { Authorization: `Bearer ${GHL_API_KEY}` },
-      }
-    );
-
-    const pipelinesJson = await pipelinesRes.json();
-
-    const pipeline = pipelinesJson.pipelines?.find(
-      (p: any) => p.name.toLowerCase() === 'cartera propia'
-    );
-
-    if (!pipeline) {
-      return NextResponse.json(
-        { error: 'No se encontró el pipeline "Cartera propia".' },
-        { status: 500 }
-      );
+    `https://rest.gohighlevel.com/v1/pipelines/?locationId=${GHL_LOCATION_ID}`,
+    {
+      headers: {
+        Authorization: `Bearer ${GHL_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
     }
+  );
+
+  const pipelinesJson = await pipelinesRes.json();
+
+  // Log para ver qué está devolviendo GHL en Vercel
+  console.log(
+    'Pipelines GHL:',
+    JSON.stringify(pipelinesJson, null, 2)
+  );
+
+  // Buscar cualquier pipeline que contenga "cartera propia"
+  const pipeline = pipelinesJson.pipelines?.find((p: any) =>
+    typeof p.name === 'string' &&
+    p.name.toLowerCase().includes('cartera propia')
+  );
+
+  if (!pipeline) {
+    return NextResponse.json(
+      {
+        error:
+          'No se encontró el pipeline "Cartera propia". Revisa en GHL el nombre exacto del pipeline o los logs de Vercel (Pipelines GHL).',
+      },
+      { status: 500 }
+    );
+  }
 
     const stage = pipeline.stages.find(
       (s: any) => s.name.toLowerCase() === 'oportunidad recibida'
