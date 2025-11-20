@@ -161,7 +161,131 @@ export default function FormularioDeCampoClient() {
           />
         </div>
 
-        {/* ... EL RESTO DEL FORMULARIO SE MANTIENE IGUAL ... */}
+        {/* Apellido */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Apellido <span className="text-red-500">*</span>
+            </label>
+            <input
+              name="apellido"
+              required
+              type="text"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+
+          {/* Celular */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Celular (Perú) <span className="text-red-500">*</span>
+            </label>
+            <input
+              name="celular"
+              required
+              type="text"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="9 dígitos"
+            />
+          </div>
+
+          {/* Documento de identidad */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Documento de identidad
+            </label>
+            <input
+              name="documentoIdentidad"
+              type="text"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="DNI: 8 dígitos / CE: 9-12 dígitos"
+            />
+          </div>
+
+          {/* Correo electrónico */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Correo electrónico
+            </label>
+            <input
+              name="email"
+              type="email"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              placeholder="nombre_del_correo@dominio.com"
+            />
+          </div>
+
+          {/* Proyecto de interés */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Proyecto de interés
+            </label>
+            <select
+              name="proyectoInteres"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              defaultValue="NINGUNO"
+            >
+              <option value="NINGUNO">NINGUNO</option>
+              <option value="Bosques de Calango">Bosques de Calango</option>
+              <option value="Asia Pacific Condominio">
+                Asia Pacific Condominio
+              </option>
+              <option value="Pachacamac Luxury">Pachacamac Luxury</option>
+              <option value="Paracas Realty Beach">Paracas Realty Beach</option>
+              <option value="Toscana Garden">Toscana Garden</option>
+              <option value="Buonavista">Buonavista</option>
+              <option value="Altavista">Altavista</option>
+            </select>
+          </div>
+
+          {/* Presupuesto */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Presupuesto
+            </label>
+            <select
+              name="presupuesto"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              defaultValue=""
+            >
+              <option value="">Selecciona</option>
+              <option value="5000-25000">$5 000 – $25 000</option>
+              <option value="25000-50000">$25 000 – $50 000</option>
+              <option value="50000-100000">$50 000 – $100 000</option>
+              <option value="100000-200000">$100 000 – $200 000</option>
+              <option value="200000+">$200 000 a más</option>
+            </select>
+          </div>
+
+          {/* Modalidad de pago */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Modalidad de pago
+            </label>
+            <select
+              name="modalidadPago"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              defaultValue=""
+            >
+              <option value="">Selecciona</option>
+              <option value="financiado">Financiado</option>
+              <option value="fraccionado">Fraccionado</option>
+              <option value="contado">Al contado</option>
+              <option value="plan 69">Plan 69</option>
+            </select>
+          </div>
+
+          {/* Comentarios */}
+          <div>
+            <label className="block font-semibold mb-1 text-black">
+              Comentario
+            </label>
+            <textarea
+              name="comentarios"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              rows={3}
+              placeholder="Horarios de llamada, preferencia de comunicación, etc."
+            />
+          </div>
 
         {error && <p className="text-red-600">{error}</p>}
         {msg && <p className="text-green-600">{msg}</p>}
