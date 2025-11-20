@@ -1,19 +1,16 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
-type Props = {
-  searchParams: { [key: string]: string | string[] | undefined };
-};
-
-export default function FormularioDeCampoPage({ searchParams }: Props) {
+export default function FormularioDeCampoPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const usuarioId = Array.isArray(searchParams.t)
-    ? searchParams.t[0]
-    : searchParams.t;
+  // Obtener ?t=ID desde la URL
+  const searchParams = useSearchParams();
+  const usuarioId = searchParams.get('t'); // ahora SÍ funciona en client components
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -43,6 +40,7 @@ export default function FormularioDeCampoPage({ searchParams }: Props) {
     }
 
     setLoading(true);
+
     try {
       const res = await fetch('/api/tradicional/campo', {
         method: 'POST',
@@ -163,7 +161,11 @@ export default function FormularioDeCampoPage({ searchParams }: Props) {
           {error && <p className="text-red-600">{error}</p>}
           {msg && <p className="text-green-600">{msg}</p>}
 
-          <button type="submit" disabled={loading} className="w-full bg-[#d4551f] text-white py-2 rounded-md">
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-[#d4551f] text-white py-2 rounded-md"
+          >
             {loading ? 'Registrando...' : 'Registrar'}
           </button>
         </form>
