@@ -67,6 +67,14 @@ export async function POST(req: NextRequest) {
 
     const ownerId = usuario.ghl_id;
 
+
+
+    //temporal, borrar
+    console.log(
+      'GHL_API_KEY prefix & length:',
+      GHL_API_KEY?.slice(0, 10),
+      GHL_API_KEY?.length
+    );
     // ----------------------------------------------------------------------
     // 3. Obtener pipeline y stage desde GHL por nombre
     // ----------------------------------------------------------------------
