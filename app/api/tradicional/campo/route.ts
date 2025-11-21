@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
     if (GHL_CF_ORIGEN_ID) {
       customFields.push({
         id: GHL_CF_ORIGEN_ID,
-        value: 'CAMPO',
+        value: 'Campo',
       });
     }
 
