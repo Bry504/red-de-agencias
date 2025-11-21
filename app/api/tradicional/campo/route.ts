@@ -8,12 +8,21 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-// === ENV de GHL ===
+// Usamos el mismo token tipo "pit-..." que ya tienes
 const GHL_API_KEY = process.env.GHL_API_KEY!;
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID!;
 const GHL_PIPELINE_ID = process.env.GHL_PIPELINE_ID!;
 const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA =
   process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
+
+// Headers estándar de LeadConnector (como en tu otro proyecto)
+const ghlHeaders = {
+  Authorization: `Bearer ${GHL_API_KEY}`,
+  Accept: 'application/json',
+  'Content-Type': 'application/json',
+  Version: '2021-07-28',
+  'Location-Id': GHL_LOCATION_ID,
+} as const;
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,23 +50,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------------------------
-    // 0. Validar que las envs de GHL estén presentes
-    // ----------------------------------------------------------------------
-    if (
-      !GHL_API_KEY ||
-      !GHL_LOCATION_ID ||
-      !GHL_PIPELINE_ID ||
-      !GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA
-    ) {
-      console.error('Faltan variables de entorno de GHL');
-      return NextResponse.json(
-        { error: 'Configuración de GHL incompleta. Contacte al administrador.' },
-        { status: 500 }
-      );
-    }
-
-    // ----------------------------------------------------------------------
-    // 1. Validar duplicado en tabla contactos
+    // 1. Validar duplicado en tabla contactos (Supabase)
     // ----------------------------------------------------------------------
     const { data: exists } = await supabase
       .from('contactos')
@@ -73,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------------------------
-    // 2. Obtener ghl_id del usuario (owner de la oportunidad)
+    // 2. Obtener ghl_id del usuario (owner en GHL)
     // ----------------------------------------------------------------------
     const { data: usuario } = await supabase
       .from('usuarios')
@@ -88,75 +81,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ownerId = usuario.ghl_id;
+    const ownerId = String(usuario.ghl_id);
 
     // ----------------------------------------------------------------------
-    // 3. Buscar custom field "contact.documento_de_identidad" (opcional)
+    // 3. Crear contacto en GHL (LeadConnector)
     // ----------------------------------------------------------------------
-    let documentoFieldId: string | null = null;
-
-    if (documentoIdentidad) {
-      const fieldsRes = await fetch(
-        `https://rest.gohighlevel.com/v1/custom-fields/?locationId=${GHL_LOCATION_ID}`,
-        {
-          headers: { Authorization: `Bearer ${GHL_API_KEY}` },
-        }
-      );
-
-      const fieldsJson = await fieldsRes.json();
-
-      const field = fieldsJson.customFields?.find(
-        (f: any) =>
-          typeof f.name === 'string' &&
-          f.name.toLowerCase() === 'contact.documento_de_identidad'
-      );
-
-      if (field) documentoFieldId = field.id;
-    }
-
-    // ----------------------------------------------------------------------
-    // 4. Crear contacto en GHL (SIN notes → la nota va en otro endpoint)
-    // ----------------------------------------------------------------------
-    const notas = [
-      lugarProspeccion && `Lugar: ${lugarProspeccion}`,
-      proyectoInteres && `Proyecto: ${proyectoInteres}`,
-      presupuesto && `Presupuesto: ${presupuesto}`,
-      modalidadPago && `Pago: ${modalidadPago}`,
-      comentarios && `Comentarios: ${comentarios}`,
-    ]
-      .filter(Boolean)
-      .join(' | ');
+    const phoneE164 = `+51${celular}`; // ya validaste 9 dígitos en el client
 
     const contactPayload: any = {
       locationId: GHL_LOCATION_ID,
-      source: 'Campo',
       firstName: nombre,
       lastName: apellido,
-      phone: celular,
-      email,
-      // OJO: aquí ya no va "notes"
+      phone: phoneE164,
+      email: email || undefined,
+      source: 'CAMPO',
     };
 
-    if (documentoFieldId && documentoIdentidad) {
-      contactPayload.customField = [
-        { id: documentoFieldId, value: documentoIdentidad },
-      ];
-    }
+    // Si tienes un custom field para DNI/CE, acá lo podrías mapear:
+    // contactPayload.customFields = [{ id: 'ID_DEL_CF_DNI', value: documentoIdentidad }];
 
     const contactRes = await fetch(
-      'https://rest.gohighlevel.com/v1/contacts/',
+      'https://services.leadconnectorhq.com/contacts/upsert',
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GHL_API_KEY}`,
-        },
+        headers: ghlHeaders,
         body: JSON.stringify(contactPayload),
       }
     );
 
     if (!contactRes.ok) {
-      const text = await contactRes.text();
+      const text = await contactRes.text().catch(() => '');
       console.error('GHL contact error:', contactRes.status, text);
       return NextResponse.json(
         { error: 'No se pudo crear el contacto en GHL.' },
@@ -164,12 +118,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const contactJson = await contactRes.json();
+    const contactJson = await contactRes.json().catch(() => ({}));
     const contactId =
-      contactJson.id || contactJson.contactId || contactJson.contact?.id;
+      contactJson.id ||
+      contactJson.contact?.id ||
+      contactJson.data?.id ||
+      contactJson.result?.id;
 
     if (!contactId) {
-      console.error('No se obtuvo contactId desde GHL:', contactJson);
+      console.error('GHL contact response sin id:', contactJson);
       return NextResponse.json(
         { error: 'No se pudo obtener el ID de contacto en GHL.' },
         { status: 500 }
@@ -177,68 +134,81 @@ export async function POST(req: NextRequest) {
     }
 
     // ----------------------------------------------------------------------
-    // 4.b Crear NOTA en el contacto (opcional, no rompe el flujo si falla)
+    // 4. Crear NOTA con todo el contexto
     // ----------------------------------------------------------------------
-    if (notas) {
+    const partesNota = [
+      lugarProspeccion && `Lugar de prospección: ${lugarProspeccion}`,
+      proyectoInteres && `Proyecto de interés: ${proyectoInteres}`,
+      presupuesto && `Presupuesto: ${presupuesto}`,
+      modalidadPago && `Modalidad de pago: ${modalidadPago}`,
+      comentarios && `Comentario: ${comentarios}`,
+      documentoIdentidad && `Documento de identidad: ${documentoIdentidad}`,
+      `Celular: ${celular}`,
+    ].filter(Boolean);
+
+    const notaTexto = partesNota.join('\n');
+
+    if (notaTexto) {
       try {
         const noteRes = await fetch(
-          `https://rest.gohighlevel.com/v1/contacts/${contactId}/notes/`,
+          `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(
+            contactId
+          )}/notes`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${GHL_API_KEY}`,
-            },
-            body: JSON.stringify({ body: notas }),
+            headers: ghlHeaders,
+            body: JSON.stringify({ body: notaTexto }),
           }
         );
 
         if (!noteRes.ok) {
-          const text = await noteRes.text();
-          console.warn(
-            'GHL note error (no bloqueante):',
-            noteRes.status,
-            text
-          );
+          const text = await noteRes.text().catch(() => '');
+          console.error('GHL note error:', noteRes.status, text);
+          // No rompemos el flujo si falla la nota: solo log
         }
       } catch (e) {
-        console.warn('Error creando nota en GHL (no bloqueante):', e);
+        console.error('Error creando nota en GHL:', e);
       }
     }
 
     // ----------------------------------------------------------------------
-    // 5. Crear oportunidad en GHL
+    // 5. Crear OPORTUNIDAD en el pipeline / stage configurados
     // ----------------------------------------------------------------------
     const opportunityPayload = {
-      title: `${nombre} ${apellido}`,
-      contactId,
-      pipelineId: GHL_PIPELINE_ID,
-      stageId: GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA,
       locationId: GHL_LOCATION_ID,
+      contactId: String(contactId),
+      pipelineId: GHL_PIPELINE_ID,
+      pipelineStageId: GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA,
+      status: 'open',
+      name: `${nombre} ${apellido}`,
       assignedTo: ownerId,
+      source: 'CAMPO',
     };
 
     const oppRes = await fetch(
-      'https://rest.gohighlevel.com/v1/opportunities/',
+      'https://services.leadconnectorhq.com/opportunities/',
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GHL_API_KEY}`,
-        },
+        headers: ghlHeaders,
         body: JSON.stringify(opportunityPayload),
       }
     );
 
     if (!oppRes.ok) {
-      const text = await oppRes.text();
+      const text = await oppRes.text().catch(() => '');
       console.error('GHL opportunity error:', oppRes.status, text);
+      // Igual devolvemos 201 porque el contacto ya se creó correctamente
       return NextResponse.json(
-        { error: 'No se pudo crear la oportunidad en GHL.' },
-        { status: 500 }
+        {
+          ok: true,
+          warning:
+            'Contacto creado, pero no se pudo crear la oportunidad en GHL. Revisa logs.',
+        },
+        { status: 201 }
       );
     }
 
+    // Si todo OK:
     return NextResponse.json(
       { ok: true, message: 'Prospecto creado correctamente.' },
       { status: 201 }
