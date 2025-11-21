@@ -12,8 +12,11 @@ const supabase = createClient(
 const GHL_API_KEY = process.env.GHL_API_KEY!;
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID!;
 const GHL_PIPELINE_ID = process.env.GHL_PIPELINE_ID!;
-const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA =
-  process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
+const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA = process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
+
+// nuevos: custom fields de la OPORTUNIDAD
+const GHL_CF_ORIGEN_ID = process.env.GHL_CF_ORIGEN_ID!;              // ORIGEN
+const GHL_CF_DOC_IDENTIDAD_ID = process.env.GHL_CF_DOC_IDENTIDAD_ID!; // DOCUMENTO DE IDENTIDAD
 
 // Headers estándar de LeadConnector (como en tu otro proyecto)
 const ghlHeaders = {
@@ -84,6 +87,30 @@ export async function POST(req: NextRequest) {
     const ownerId = String(usuario.ghl_id);
 
     // ----------------------------------------------------------------------
+    // 3. Buscar custom field "contact.documento_de_identidad" (CONTACTO)
+    // ----------------------------------------------------------------------
+    let contactoDocumentoFieldId: string | null = null;
+
+    if (documentoIdentidad) {
+      const fieldsRes = await fetch(
+        `https://rest.gohighlevel.com/v1/custom-fields/?locationId=${GHL_LOCATION_ID}`,
+        {
+          headers: { Authorization: `Bearer ${GHL_API_KEY}` },
+        }
+      );
+
+      const fieldsJson = await fieldsRes.json();
+
+      const field = fieldsJson.customFields?.find(
+        (f: any) =>
+          typeof f.name === 'string' &&
+          f.name.toLowerCase() === 'contact.documento_de_identidad'
+      );
+
+      if (field) contactoDocumentoFieldId = field.id;
+    }
+
+    // ----------------------------------------------------------------------
     // 3. Crear contacto en GHL (LeadConnector)
     // ----------------------------------------------------------------------
     const phoneE164 = `+51${celular}`; // ya validaste 9 dígitos en el client
@@ -94,12 +121,13 @@ export async function POST(req: NextRequest) {
       lastName: apellido,
       phone: phoneE164,
       email: email || undefined,
-      source: 'CAMPO',
     };
-
-    // Si tienes un custom field para DNI/CE, acá lo podrías mapear:
-    // contactPayload.customFields = [{ id: 'ID_DEL_CF_DNI', value: documentoIdentidad }];
-
+    if (contactoDocumentoFieldId && documentoIdentidad) {
+          contactPayload.customField = [
+            { id: contactoDocumentoFieldId, value: documentoIdentidad },
+          ];
+        }
+    
     const contactRes = await fetch(
       'https://services.leadconnectorhq.com/contacts/upsert',
       {
@@ -174,6 +202,16 @@ export async function POST(req: NextRequest) {
     // ----------------------------------------------------------------------
     // 5. Crear OPORTUNIDAD en el pipeline / stage configurados
     // ----------------------------------------------------------------------
+
+    const opportunityCustomFields: Array<{ id: string; value: string }> = []; 
+    // ORIGEN = "CAMPO"
+    if (GHL_CF_ORIGEN_ID) {
+      opportunityCustomFields.push({
+        id: GHL_CF_ORIGEN_ID,
+        value: 'CAMPO',
+      });
+    }
+
     const opportunityPayload = {
       locationId: GHL_LOCATION_ID,
       contactId: String(contactId),
