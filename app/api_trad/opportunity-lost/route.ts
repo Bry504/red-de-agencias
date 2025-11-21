@@ -254,7 +254,7 @@ export async function POST(req: NextRequest) {
       const { data: pipelineRow, error: pipelineError } = await supabase
         .from('pipelines')
         .select('id')
-        .eq('nombre', cleaned.pipeline_text)
+        .eq('nombre', cleaned.pipeline_text)  // 👈 usa columna `nombre`
         .maybeSingle();
 
       if (pipelineError) {
