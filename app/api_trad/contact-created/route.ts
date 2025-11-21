@@ -2,135 +2,229 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// ---------------------------------------------------
-// SUPABASE CLIENT
-// ---------------------------------------------------
+// ==============================
+// Supabase
+// ==============================
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
 
-// Token único del webhook (usa tu mismo pit-...)
-const WEBHOOK_TOKEN = process.env.GHL_API_KEY ?? '';
+// ==============================
+// Token de seguridad (reusamos el mismo patrón que ya tenías)
+// ==============================
+const WEBHOOK_TOKEN =
+  process.env.GHL_WEBHOOK_TOKEN ??
+  process.env.GHL_API_KEY ?? // si quieres usar el pit-... como token
+  '';
 
-function isObj(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null;
+// ==============================
+// Helpers
+// ==============================
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
-function getString(o: Record<string, unknown>, k: string): string | null {
-  const v = o[k];
-  if (typeof v === 'string') return v.trim() || null;
+function getStringField(
+  obj: Record<string, unknown> | null | undefined,
+  key: string
+): string | null {
+  if (!obj) return null;
+  const value = obj[key];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
+  }
   return null;
 }
 
+function toNumberOrNull(v: string | null): number | null {
+  if (v === null) return null;
+  const num = Number(v);
+  return Number.isNaN(num) ? null : num;
+}
+
+// ==============================
+// Handler
+// ==============================
 export async function POST(req: NextRequest) {
   try {
-    // ---------------------------------------------------
-    // 1) TOKEN
-    // ---------------------------------------------------
+    // --------------------------------------------------
+    // 1) Validar token ?token=...
+    // --------------------------------------------------
     const url = new URL(req.url);
-    const token = url.searchParams.get('token');
+    const tokenFromQuery = url.searchParams.get('token');
 
-    if (token !== WEBHOOK_TOKEN) {
+    console.log('[TRAD contact-created] token query =', tokenFromQuery);
+
+    if (!WEBHOOK_TOKEN || !tokenFromQuery || tokenFromQuery !== WEBHOOK_TOKEN) {
+      console.warn(
+        '[TRAD contact-created] Token inválido:',
+        tokenFromQuery,
+        'esperado:',
+        WEBHOOK_TOKEN ? '(definido)' : '(VACÍO)'
+      );
       return NextResponse.json(
-        { ok: false, error: 'Unauthorized token' },
+        { ok: false, error: 'Unauthorized: invalid token' },
         { status: 401 }
       );
     }
 
-    // ---------------------------------------------------
-    // 2) BODY REAL DEL WEBHOOK
-    // ---------------------------------------------------
-    const raw: unknown = await req.json().catch(() => null);
-    if (!isObj(raw)) {
+    // --------------------------------------------------
+    // 2) Leer body bruto
+    // --------------------------------------------------
+    const rawBody: unknown = await req.json().catch(() => null);
+
+    if (!isRecord(rawBody)) {
+      console.error('[TRAD contact-created] Body no es objeto:', rawBody);
       return NextResponse.json(
-        { ok: false, error: 'Invalid payload' },
+        { ok: false, error: 'Invalid payload format' },
         { status: 400 }
       );
     }
 
-    // GHL a veces envía raw.contact, otras veces raw directo:
-    const contact = isObj(raw.contact) ? raw.contact : raw;
+    const root = rawBody;
 
-    // ---------------------------------------------------
-    // 3) CAMPOS NATIVOS
-    // ---------------------------------------------------
-    const contactId =
-      getString(contact, 'id') ??
-      getString(contact, 'contact_id') ??
-      null;
-
-    // celular (limpiar E.164)
-    let celular: string | null = null;
-    if (typeof contact.phone === 'string') {
-      const clean = contact.phone.replace(/\D/g, '');
-      celular = clean.slice(-9) || null;
+    // HighLevel normalmente manda:
+    // { contact: {...}, customData: {...}, ... }
+    let contact: Record<string, unknown> = {};
+    if ('contact' in root && isRecord(root['contact'])) {
+      contact = root['contact'] as Record<string, unknown>;
+    } else {
+      // fallback: por si el contact viene en la raíz
+      contact = root;
     }
 
-    const first = getString(contact, 'firstName') ?? '';
-    const last = getString(contact, 'lastName') ?? '';
-    const nombre_completo =
-      `${first} ${last}`.trim() || null;
+    let customData: Record<string, unknown> = {};
+    if ('customData' in root && isRecord(root['customData'])) {
+      customData = root['customData'] as Record<string, unknown>;
+    }
+
+    // Logs potentes para ver EXACTAMENTE qué está llegando
+    console.log(
+      '[TRAD contact-created] root =',
+      JSON.stringify(root, null, 2)
+    );
+    console.log(
+      '[TRAD contact-created] contact =',
+      JSON.stringify(contact, null, 2)
+    );
+    console.log(
+      '[TRAD contact-created] customData =',
+      JSON.stringify(customData, null, 2)
+    );
+
+    // --------------------------------------------------
+    // 3) Resolver campos
+    //    (primero buscamos en customData, luego contact, luego root)
+    // --------------------------------------------------
+
+    // hl_contact_id
+    let hl_contact_id =
+      getStringField(customData, 'hl_contact_id') ??
+      getStringField(root, 'hl_contact_id') ??
+      getStringField(contact, 'id');
+
+    // celular (limpiamos a 9 dígitos peruanos)
+    let celularRaw =
+      getStringField(customData, 'celular') ??
+      getStringField(root, 'celular') ??
+      getStringField(contact, 'phone');
+
+    let celular: string | null = null;
+    if (celularRaw) {
+      const digits = celularRaw.replace(/\D/g, '');
+      celular = digits.slice(-9) || null;
+    }
+
+    // nombre_completo
+    let nombre_completo =
+      getStringField(customData, 'nombre_completo') ??
+      getStringField(root, 'nombre_completo');
+
+    if (!nombre_completo) {
+      const first = getStringField(contact, 'firstName') ?? '';
+      const last = getStringField(contact, 'lastName') ?? '';
+      const combined = `${first} ${last}`.trim();
+      nombre_completo = combined || null;
+    }
+
+    const documento_de_identidad =
+      getStringField(customData, 'documento_de_identidad') ??
+      getStringField(root, 'documento_de_identidad');
+
+    const estado_civil =
+      getStringField(customData, 'estado_civil') ??
+      getStringField(root, 'estado_civil');
+
+    const distrito_de_residencia =
+      getStringField(customData, 'distrito_de_residencia') ??
+      getStringField(root, 'distrito_de_residencia');
+
+    const profesion =
+      getStringField(customData, 'profesion') ??
+      getStringField(root, 'profesion');
 
     const email =
-      getString(contact, 'email') ??
-      getString(contact, 'contact.email') ??
-      null;
+      getStringField(customData, 'email') ??
+      getStringField(root, 'email') ??
+      getStringField(contact, 'email');
 
-    // ---------------------------------------------------
-    // 4) CUSTOM FIELDS (los lee TODOS automáticamente)
-    // ---------------------------------------------------
-    let documento_de_identidad: string | null = null;
-    let origen: string | null = null;
-    let estado_civil: string | null = null;
-    let distrito_de_residencia: string | null = null;
-    let profesion: string | null = null;
-    let fecha_de_nacimiento: string | null = null;
-    let latitud: number | null = null;
-    let longitud: number | null = null;
+    const origen =
+      getStringField(customData, 'origen') ??
+      getStringField(root, 'origen');
 
-    if (Array.isArray(contact.customFields)) {
-      for (const cf of contact.customFields) {
-        if (!isObj(cf)) continue;
+    const fecha_de_nacimiento =
+      getStringField(customData, 'fecha_de_nacimiento') ??
+      getStringField(root, 'fecha_de_nacimiento');
 
-        const id = getString(cf, 'id');
-        const val = getString(cf, 'value');
+    const latitudStr =
+      getStringField(customData, 'latitud') ??
+      getStringField(root, 'latitud');
+    const longitudStr =
+      getStringField(customData, 'longitud') ??
+      getStringField(root, 'longitud');
 
-        if (!id) continue;
+    const latitud = toNumberOrNull(latitudStr);
+    const longitud = toNumberOrNull(longitudStr);
 
-        // NO dependemos del ID → usamos "name" (GHL siempre lo incluye)
-        const name = getString(cf, 'name')?.toLowerCase() ?? '';
+    // Log de lo que vamos a insertar
+    console.log('[TRAD contact-created] Campos mapeados:', {
+      nombre_completo,
+      celular,
+      documento_de_identidad,
+      estado_civil,
+      distrito_de_residencia,
+      profesion,
+      email,
+      origen,
+      fecha_de_nacimiento,
+      hl_contact_id,
+      latitud,
+      longitud
+    });
 
-        if (name.includes('documento')) documento_de_identidad = val;
-        else if (name.includes('origen')) origen = val;
-        else if (name.includes('civil')) estado_civil = val;
-        else if (name.includes('distrito')) distrito_de_residencia = val;
-        else if (name.includes('profesion')) profesion = val;
-        else if (name.includes('nac')) fecha_de_nacimiento = val;
-        else if (name.includes('latitud'))
-          latitud = val ? Number(val) : null;
-        else if (name.includes('longitud'))
-          longitud = val ? Number(val) : null;
-      }
-    }
-
-    // ---------------------------------------------------
-    // 5) VALIDACIÓN
-    // ---------------------------------------------------
-    if (!celular && !contactId) {
+    // --------------------------------------------------
+    // 4) Validación mínima REAl
+    // --------------------------------------------------
+    if (!celular && !hl_contact_id) {
+      console.warn(
+        '[TRAD contact-created] Sin celular ni hl_contact_id. No se inserta.'
+      );
       return NextResponse.json(
         {
           ok: false,
-          error: 'Missing celular or hl_contact_id',
+          error:
+            'Se requiere al menos celular o hl_contact_id para registrar el contacto.'
         },
         { status: 400 }
       );
     }
 
-    // ---------------------------------------------------
-    // 6) INSERT EN SUPABASE
-    // ---------------------------------------------------
+    // --------------------------------------------------
+    // 5) Insert en Supabase
+    // --------------------------------------------------
     const { data, error } = await supabase
       .from('contactos')
       .insert([
@@ -144,31 +238,33 @@ export async function POST(req: NextRequest) {
           email,
           origen,
           fecha_de_nacimiento,
-          hl_contact_id: contactId,
+          hl_contact_id,
           latitud,
           longitud,
-          canal: 'TRADICIONAL',
-        },
+          canal: 'TRADICIONAL'
+        }
       ])
       .select('id')
       .single();
 
     if (error) {
-      console.error('Supabase error:', error);
+      console.error('[TRAD contact-created] Supabase insert error:', error);
       return NextResponse.json(
-        { ok: false, error: 'Supabase insert error' },
+        { ok: false, error: 'No se pudo registrar el contacto en Supabase.' },
         { status: 500 }
       );
     }
 
+    console.log('[TRAD contact-created] Insert OK, id =', data.id);
+
     return NextResponse.json(
-      { ok: true, contacto_id: data.id },
+      { ok: true, id: data.id },
       { status: 201 }
     );
   } catch (err) {
-    console.error('Webhook contact-created error:', err);
+    console.error('[TRAD contact-created] Error inesperado:', err);
     return NextResponse.json(
-      { ok: false, error: 'Unexpected error' },
+      { ok: false, error: 'Error interno en el endpoint.' },
       { status: 500 }
     );
   }
