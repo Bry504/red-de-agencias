@@ -8,20 +8,16 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
-// Tokens / IDs de GHL
 const GHL_API_KEY = process.env.GHL_API_KEY!;
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID!;
 const GHL_PIPELINE_ID = process.env.GHL_PIPELINE_ID!;
-const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA =
-  process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
-
-// CUSTOM FIELDS DEL CONTACTO
-// ORIGEN  -> oclkUYaCd3eJidBTOAN4
-// DOC ID  -> uJAPdiHRL1MaDprSA4hs
-const GHL_CF_ORIGEN_ID = process.env.GHL_CF_ORIGEN_ID!;
+const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA = process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
 const GHL_CF_DOC_IDENTIDAD_ID = process.env.GHL_CF_DOC_IDENTIDAD_ID!;
 
-// Headers estándar
+// Custom fields CONTACTO (proporcionados por ti)
+const GHL_CF_LATITUD_ID = "KwfbGzh46xTeWsilC1K1";
+const GHL_CF_LONGITUD_ID = "YS9sNFGTKxKrx0fzR4ir";
+
 const ghlHeaders = {
   Authorization: `Bearer ${GHL_API_KEY}`,
   Accept: 'application/json',
@@ -46,6 +42,8 @@ export async function POST(req: NextRequest) {
       presupuesto,
       modalidadPago,
       comentarios,
+      lat,         // AÑADIDO
+      lon          // AÑADIDO
     } = body;
 
     if (!usuarioId || !nombre || !apellido || !celular) {
@@ -55,7 +53,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Duplicado en Supabase (contactos)
+    // 1. Validar duplicado
     const { data: exists } = await supabase
       .from('contactos')
       .select('id')
@@ -69,7 +67,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Obtener ghl_id del usuario (owner en GHL)
+    // 2. Obtener owner (ghl_id)
     const { data: usuario } = await supabase
       .from('usuarios')
       .select('ghl_id')
@@ -85,8 +83,34 @@ export async function POST(req: NextRequest) {
 
     const ownerId = String(usuario.ghl_id);
 
-    // 3) Crear CONTACTO en GHL con customFields (ORIGEN + DOC ID)
-    const phoneE164 = `+51${celular}`; // en el client ya validas 9 dígitos
+    // ============================================================
+    // 3. CREAR CONTACTO EN GHL CON DOCUMENTO, LATITUD, LONGITUD
+    // ============================================================
+
+    const phoneE164 = `+51${celular}`;
+
+    const contactCustomFields: any[] = [];
+
+    if (documentoIdentidad) {
+      contactCustomFields.push({
+        id: GHL_CF_DOC_IDENTIDAD_ID,
+        value: documentoIdentidad
+      });
+    }
+
+    if (lat) {
+      contactCustomFields.push({
+        id: GHL_CF_LATITUD_ID,
+        value: String(lat)
+      });
+    }
+
+    if (lon) {
+      contactCustomFields.push({
+        id: GHL_CF_LONGITUD_ID,
+        value: String(lon)
+      });
+    }
 
     const contactPayload: any = {
       locationId: GHL_LOCATION_ID,
@@ -96,27 +120,8 @@ export async function POST(req: NextRequest) {
       email: email || undefined,
     };
 
-    const customFields: Array<{ id: string; value: string }> = [];
-
-    // ORIGEN = "CAMPO"
-    if (GHL_CF_ORIGEN_ID) {
-      customFields.push({
-        id: GHL_CF_ORIGEN_ID,
-        value: 'Campo',
-      });
-    }
-
-    // DOCUMENTO DE IDENTIDAD
-    if (GHL_CF_DOC_IDENTIDAD_ID && documentoIdentidad) {
-      customFields.push({
-        id: GHL_CF_DOC_IDENTIDAD_ID,
-        value: String(documentoIdentidad),
-      });
-    }
-
-    if (customFields.length > 0) {
-      // IMPORTANTE: la propiedad correcta es "customFields"
-      contactPayload.customFields = customFields;
+    if (contactCustomFields.length > 0) {
+      contactPayload.customField = contactCustomFields;
     }
 
     const contactRes = await fetch(
@@ -145,14 +150,15 @@ export async function POST(req: NextRequest) {
       contactJson.result?.id;
 
     if (!contactId) {
-      console.error('GHL contact response sin id:', contactJson);
       return NextResponse.json(
         { error: 'No se pudo obtener el ID de contacto en GHL.' },
         { status: 500 }
       );
     }
 
-    // 4) Crear NOTA con todo el contexto
+    // ============================================================
+    // 4. NOTA
+    // ============================================================
     const partesNota = [
       lugarProspeccion && `Lugar de prospección: ${lugarProspeccion}`,
       proyectoInteres && `Proyecto de interés: ${proyectoInteres}`,
@@ -160,6 +166,8 @@ export async function POST(req: NextRequest) {
       modalidadPago && `Modalidad de pago: ${modalidadPago}`,
       comentarios && `Comentario: ${comentarios}`,
       documentoIdentidad && `Documento de identidad: ${documentoIdentidad}`,
+      lat && `Latitud: ${lat}`,
+      lon && `Longitud: ${lon}`,
       `Celular: ${celular}`,
     ].filter(Boolean);
 
@@ -167,27 +175,22 @@ export async function POST(req: NextRequest) {
 
     if (notaTexto) {
       try {
-        const noteRes = await fetch(
-          `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(
-            contactId
-          )}/notes`,
+        await fetch(
+          `https://services.leadconnectorhq.com/contacts/${contactId}/notes`,
           {
             method: 'POST',
             headers: ghlHeaders,
             body: JSON.stringify({ body: notaTexto }),
           }
         );
-
-        if (!noteRes.ok) {
-          const text = await noteRes.text().catch(() => '');
-          console.error('GHL note error:', noteRes.status, text);
-        }
-      } catch (e) {
-        console.error('Error creando nota en GHL:', e);
+      } catch (err) {
+        console.error('Error creando nota:', err);
       }
     }
 
-    // 5) Crear OPORTUNIDAD en el pipeline / stage configurados
+    // ============================================================
+    // 5. CREAR OPORTUNIDAD
+    // ============================================================
     const opportunityPayload = {
       locationId: GHL_LOCATION_ID,
       contactId: String(contactId),
@@ -196,7 +199,7 @@ export async function POST(req: NextRequest) {
       status: 'open',
       name: `${nombre} ${apellido}`,
       assignedTo: ownerId,
-      // OJO: ya NO enviamos "source" aquí
+      source: 'Campo'
     };
 
     const oppRes = await fetch(
@@ -212,11 +215,7 @@ export async function POST(req: NextRequest) {
       const text = await oppRes.text().catch(() => '');
       console.error('GHL opportunity error:', oppRes.status, text);
       return NextResponse.json(
-        {
-          ok: true,
-          warning:
-            'Contacto creado, pero no se pudo crear la oportunidad en GHL. Revisa logs.',
-        },
+        { ok: true, warning: 'Contacto creado, pero no se pudo crear la oportunidad en GHL.' },
         { status: 201 }
       );
     }
@@ -225,6 +224,7 @@ export async function POST(req: NextRequest) {
       { ok: true, message: 'Prospecto creado correctamente.' },
       { status: 201 }
     );
+
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Error interno.' }, { status: 500 });
