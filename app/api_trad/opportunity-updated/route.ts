@@ -189,6 +189,11 @@ export async function POST(req: NextRequest) {
     const arras = toNumberOrNull(arrasStr);
     const cuota_inicial_pagada = toNumberOrNull(cuotaInicialStr);
 
+    // 👇 NUEVO: nombre_completo viene directo del webhook
+    const nombre_completo =
+      getStringField(customData, 'nombre_completo') ??
+      getStringField(root, 'nombre_completo');
+
     console.log('[TRAD opportunity-updated] Campos recibidos (limpios):', {
       propietarioHlId,
       estado,
@@ -203,7 +208,8 @@ export async function POST(req: NextRequest) {
       motivo_de_seguimiento,
       principales_objeciones,
       arras,
-      cuota_inicial_pagada
+      cuota_inicial_pagada,
+      nombre_completo, // 👈 log para verificar
     });
 
     // --------------------------------------------------
@@ -308,7 +314,8 @@ export async function POST(req: NextRequest) {
       principales_objeciones,
       arras,
       cuota_inicial_pagada,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      nombre_completo, // 👈 NUEVO: se actualiza tal cual viene
     };
 
     // Sólo actualizamos propietario/contacto si logramos mapearlos
