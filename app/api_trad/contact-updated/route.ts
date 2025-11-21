@@ -39,6 +39,23 @@ function getStringField(
   return null;
 }
 
+// Normaliza fechas tipo "Jul 16th 2001" -> "2001-07-16"
+function normalizeDate(input: string | null): string | null {
+  if (!input) return null;
+
+  // quitar ordinales: 1st, 2nd, 3rd, 4th...
+  const cleaned = input.replace(/(\d+)(st|nd|rd|th)/gi, '$1');
+
+  const d = new Date(cleaned);
+  if (isNaN(d.getTime())) {
+    console.log('[TRAD contact-updated] Fecha inválida recibida:', input);
+    return null;
+  }
+
+  // YYYY-MM-DD
+  return d.toISOString().slice(0, 10);
+}
+
 // ==============================
 // Handler
 // ==============================
@@ -95,7 +112,7 @@ export async function POST(req: NextRequest) {
       customData = root['customData'] as Record<string, unknown>;
     }
 
-    // Logs para debug
+    // Logs para debug (deja estos mientras estés probando)
     console.log(
       '[TRAD contact-updated] root =',
       JSON.stringify(root, null, 2)
@@ -178,9 +195,11 @@ export async function POST(req: NextRequest) {
       getStringField(customData, 'origen') ??
       getStringField(root, 'origen');
 
-    const fecha_de_nacimiento =
+    const fechaRaw =
       getStringField(customData, 'fecha_de_nacimiento') ??
       getStringField(root, 'fecha_de_nacimiento');
+
+    const fecha_de_nacimiento = normalizeDate(fechaRaw);
 
     // Log de los campos que vamos a usar para el UPDATE
     console.log('[TRAD contact-updated] Campos mapeados:', {
@@ -192,6 +211,7 @@ export async function POST(req: NextRequest) {
       profesion,
       email,
       origen,
+      fechaRaw,
       fecha_de_nacimiento,
       hl_contact_id
     });
