@@ -7,9 +7,13 @@ export default function FormularioDeCampoClient() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [usuarioId, setUsuarioId] = useState<string | null | undefined>(
-    undefined
-  );
+  const [usuarioId, setUsuarioId] = useState<string | null | undefined>(undefined);
+
+  // NUEVO: estado para geolocalización
+  const [coords, setCoords] = useState<{ lat: number | null; lon: number | null }>({
+    lat: null,
+    lon: null,
+  });
 
   // Leer ?t=... desde la URL en el CLIENTE
   useEffect(() => {
@@ -21,6 +25,32 @@ export default function FormularioDeCampoClient() {
       console.error('Error leyendo search params:', e);
       setUsuarioId(null);
     }
+  }, []);
+
+  // NUEVO: intentar obtener latitud/longitud del navegador
+  useEffect(() => {
+    if (!navigator?.geolocation) {
+      console.warn('Geolocalización no soportada por el navegador.');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+        });
+      },
+      (err) => {
+        console.warn('No se pudo obtener geolocalización:', err);
+        // No lanzamos error al usuario; simplemente se quedará sin lat/lon
+      },
+      {
+        enableHighAccuracy: false,
+        maximumAge: 60_000,
+        timeout: 4_000,
+      }
+    );
   }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -68,6 +98,10 @@ export default function FormularioDeCampoClient() {
           presupuesto: formData.get('presupuesto') || null,
           modalidadPago: formData.get('modalidadPago') || null,
           comentarios: formData.get('comentarios') || null,
+
+          // NUEVO: mandar lat/lon al backend
+          lat: coords.lat,
+          lon: coords.lon,
         }),
       });
 
