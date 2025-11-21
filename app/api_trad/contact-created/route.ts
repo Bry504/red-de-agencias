@@ -2,113 +2,135 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase
+// ---------------------------------------------------
+// SUPABASE CLIENT
+// ---------------------------------------------------
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
   { auth: { persistSession: false } }
 );
 
-// Token de seguridad
-const WEBHOOK_TOKEN =
-  process.env.GHL_API_KEY ??
-  process.env.GHL_WEBHOOK_TOKEN ??
-  '';
+// Token único del webhook (usa tu mismo pit-...)
+const WEBHOOK_TOKEN = process.env.GHL_API_KEY ?? '';
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+function getString(o: Record<string, unknown>, k: string): string | null {
+  const v = o[k];
+  if (typeof v === 'string') return v.trim() || null;
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    // -------------------------------
-    // 1. Validar TOKEN
-    // -------------------------------
+    // ---------------------------------------------------
+    // 1) TOKEN
+    // ---------------------------------------------------
     const url = new URL(req.url);
     const token = url.searchParams.get('token');
 
-    if (!WEBHOOK_TOKEN || token !== WEBHOOK_TOKEN) {
+    if (token !== WEBHOOK_TOKEN) {
       return NextResponse.json(
-        { error: 'No autorizado (token inválido).' },
+        { ok: false, error: 'Unauthorized token' },
         { status: 401 }
       );
     }
 
-    // -------------------------------
-    // 2. Leer BODY real de HighLevel
-    // -------------------------------
-    const payload = await req.json().catch(() => null);
-
-    if (!payload) {
+    // ---------------------------------------------------
+    // 2) BODY REAL DEL WEBHOOK
+    // ---------------------------------------------------
+    const raw: unknown = await req.json().catch(() => null);
+    if (!isObj(raw)) {
       return NextResponse.json(
-        { error: 'Body inválido.' },
+        { ok: false, error: 'Invalid payload' },
         { status: 400 }
       );
     }
 
-    // HighLevel envía los datos dentro de "contact"
-    const contact = payload.contact ?? payload;
+    // GHL a veces envía raw.contact, otras veces raw directo:
+    const contact = isObj(raw.contact) ? raw.contact : raw;
 
-    if (!contact) {
-      return NextResponse.json(
-        { error: 'Payload sin contact.' },
-        { status: 400 }
-      );
-    }
+    // ---------------------------------------------------
+    // 3) CAMPOS NATIVOS
+    // ---------------------------------------------------
+    const contactId =
+      getString(contact, 'id') ??
+      getString(contact, 'contact_id') ??
+      null;
 
-    // -------------------------------
-    // 3. Extraer datos principales
-    // -------------------------------
-    const hl_contact_id = contact.id ? String(contact.id) : null;
-
-    // Normalizar celular (E.164 → solo últimos 9 números)
+    // celular (limpiar E.164)
     let celular: string | null = null;
-    if (contact.phone) {
+    if (typeof contact.phone === 'string') {
       const clean = contact.phone.replace(/\D/g, '');
       celular = clean.slice(-9) || null;
     }
 
-    // Nombre completo
-    const first = contact.firstName ?? '';
-    const last = contact.lastName ?? '';
-    const nombre_completo = `${first} ${last}`.trim() || null;
+    const first = getString(contact, 'firstName') ?? '';
+    const last = getString(contact, 'lastName') ?? '';
+    const nombre_completo =
+      `${first} ${last}`.trim() || null;
 
-    const email = contact.email ?? null;
+    const email =
+      getString(contact, 'email') ??
+      getString(contact, 'contact.email') ??
+      null;
 
-    // -------------------------------
-    // 4. CUSTOM FIELDS
-    // -------------------------------
-    function getCF(id: string): string | null {
-      return (
-        contact.customFields?.find((f: any) => f.id === id)?.value ?? null
-      );
+    // ---------------------------------------------------
+    // 4) CUSTOM FIELDS (los lee TODOS automáticamente)
+    // ---------------------------------------------------
+    let documento_de_identidad: string | null = null;
+    let origen: string | null = null;
+    let estado_civil: string | null = null;
+    let distrito_de_residencia: string | null = null;
+    let profesion: string | null = null;
+    let fecha_de_nacimiento: string | null = null;
+    let latitud: number | null = null;
+    let longitud: number | null = null;
+
+    if (Array.isArray(contact.customFields)) {
+      for (const cf of contact.customFields) {
+        if (!isObj(cf)) continue;
+
+        const id = getString(cf, 'id');
+        const val = getString(cf, 'value');
+
+        if (!id) continue;
+
+        // NO dependemos del ID → usamos "name" (GHL siempre lo incluye)
+        const name = getString(cf, 'name')?.toLowerCase() ?? '';
+
+        if (name.includes('documento')) documento_de_identidad = val;
+        else if (name.includes('origen')) origen = val;
+        else if (name.includes('civil')) estado_civil = val;
+        else if (name.includes('distrito')) distrito_de_residencia = val;
+        else if (name.includes('profesion')) profesion = val;
+        else if (name.includes('nac')) fecha_de_nacimiento = val;
+        else if (name.includes('latitud'))
+          latitud = val ? Number(val) : null;
+        else if (name.includes('longitud'))
+          longitud = val ? Number(val) : null;
+      }
     }
 
-    const documento_de_identidad = getCF(process.env.GHL_CF_DOC_IDENTIDAD_ID!);
-    const origen = getCF(process.env.GHL_CF_ORIGEN_ID!);
-    const estado_civil = getCF(process.env.GHL_CF_ESTADO_CIVIL_ID!);
-    const distrito_de_residencia = getCF(process.env.GHL_CF_DISTRITO_ID!);
-    const profesion = getCF(process.env.GHL_CF_PROFESION_ID!);
-    const fecha_de_nacimiento = getCF(process.env.GHL_CF_FECHA_NAC_ID!);
-    const latitud = getCF(process.env.GHL_CF_LATITUD_ID!);
-    const longitud = getCF(process.env.GHL_CF_LONGITUD_ID!);
-
-    // -------------------------------
-    // 5. Validación mínima REAL
-    // -------------------------------
-    if (!celular && !hl_contact_id) {
+    // ---------------------------------------------------
+    // 5) VALIDACIÓN
+    // ---------------------------------------------------
+    if (!celular && !contactId) {
       return NextResponse.json(
         {
-          error:
-            'Se requiere al menos celular o hl_contact_id para registrar el contacto.',
+          ok: false,
+          error: 'Missing celular or hl_contact_id',
         },
         { status: 400 }
       );
     }
 
-    // Convertir lat/long a número
-    const latNum = latitud ? Number(latitud) : null;
-    const lonNum = longitud ? Number(longitud) : null;
-
-    // -------------------------------
-    // 6. INSERT EN SUPABASE
-    // -------------------------------
+    // ---------------------------------------------------
+    // 6) INSERT EN SUPABASE
+    // ---------------------------------------------------
     const { data, error } = await supabase
       .from('contactos')
       .insert([
@@ -122,9 +144,9 @@ export async function POST(req: NextRequest) {
           email,
           origen,
           fecha_de_nacimiento,
-          hl_contact_id,
-          latitud: latNum,
-          longitud: lonNum,
+          hl_contact_id: contactId,
+          latitud,
+          longitud,
           canal: 'TRADICIONAL',
         },
       ])
@@ -132,18 +154,21 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      console.error('Supabase insert error:', error);
+      console.error('Supabase error:', error);
       return NextResponse.json(
-        { error: 'No se pudo registrar el contacto en Supabase.' },
+        { ok: false, error: 'Supabase insert error' },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, id: data.id }, { status: 201 });
-  } catch (err) {
-    console.error('Error en webhook TRAD:', err);
     return NextResponse.json(
-      { error: 'Error interno en el endpoint.' },
+      { ok: true, contacto_id: data.id },
+      { status: 201 }
+    );
+  } catch (err) {
+    console.error('Webhook contact-created error:', err);
+    return NextResponse.json(
+      { ok: false, error: 'Unexpected error' },
       { status: 500 }
     );
   }
