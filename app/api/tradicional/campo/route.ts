@@ -8,8 +8,12 @@ const supabase = createClient(
   { auth: { persistSession: false } }
 );
 
+// === ENV GHL / LEADCONNECTOR ===
 const GHL_API_KEY = process.env.GHL_API_KEY!;
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID!;
+const GHL_PIPELINE_ID = process.env.GHL_PIPELINE_ID!;
+const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA =
+  process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,7 +34,13 @@ export async function POST(req: NextRequest) {
     } = body;
 
     if (!usuarioId || !nombre || !apellido || !celular) {
-      return NextResponse.json({ error: 'Faltan campos obligatorios (nombre, apellido o celular).' }, { status: 400 });
+      return NextResponse.json(
+        {
+          error:
+            'Faltan campos obligatorios (nombre, apellido o celular).',
+        },
+        { status: 400 }
+      );
     }
 
     // ----------------------------------------------------------------------
@@ -44,13 +54,16 @@ export async function POST(req: NextRequest) {
 
     if (exists) {
       return NextResponse.json(
-        { error: 'El número de celular ya está registrado en la Base de Datos.' },
+        {
+          error:
+            'El número de celular ya está registrado en la Base de Datos.',
+        },
         { status: 409 }
       );
     }
 
     // ----------------------------------------------------------------------
-    // 2. Obtener ghl_id del usuario
+    // 2. Obtener ghl_id del usuario (owner en GHL)
     // ----------------------------------------------------------------------
     const { data: usuario } = await supabase
       .from('usuarios')
@@ -65,167 +78,108 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const ownerId = usuario.ghl_id;
-
-
-
-    //temporal, borrar
-    console.log(
-      'GHL_API_KEY prefix & length:',
-      GHL_API_KEY?.slice(0, 10),
-      GHL_API_KEY?.length
-    );
-    // ----------------------------------------------------------------------
-    // 3. Obtener pipeline y stage desde GHL por nombre
-    // ----------------------------------------------------------------------
-    const pipelinesRes = await fetch(
-    `https://rest.gohighlevel.com/v1/pipelines/?locationId=${GHL_LOCATION_ID}`,
-    {
-      headers: {
-        Authorization: `Bearer ${GHL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  const pipelinesJson = await pipelinesRes.json();
-
-  // Log para ver qué está devolviendo GHL en Vercel
-  console.log(
-    'Pipelines GHL:',
-    JSON.stringify(pipelinesJson, null, 2)
-  );
-
-  // Buscar cualquier pipeline que contenga "cartera propia"
-  const pipeline = pipelinesJson.pipelines?.find((p: any) =>
-    typeof p.name === 'string' &&
-    p.name.toLowerCase().includes('cartera propia')
-  );
-
-  if (!pipeline) {
-    return NextResponse.json(
-      {
-        error:
-          'No se encontró el pipeline "Cartera propia". Revisa en GHL el nombre exacto del pipeline o los logs de Vercel (Pipelines GHL).',
-      },
-      { status: 500 }
-    );
-  }
-
-    const stage = pipeline.stages.find(
-      (s: any) => s.name.toLowerCase() === 'oportunidad recibida'
-    );
-
-    if (!stage) {
-      return NextResponse.json(
-        { error: 'No se encontró el stage "Oportunidad recibida".' },
-        { status: 500 }
-      );
-    }
+    const ownerId = String(usuario.ghl_id);
 
     // ----------------------------------------------------------------------
-    // 4. Buscar custom field "contact.documento_de_identidad"
+    // 3. Headers base para LeadConnector
     // ----------------------------------------------------------------------
-    let documentoFieldId = null;
+    const baseHeaders = {
+      Authorization: `Bearer ${GHL_API_KEY}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Version: '2021-07-28',
+      'Location-Id': GHL_LOCATION_ID,
+    } as const;
 
-    if (documentoIdentidad) {
-      const fieldsRes = await fetch(
-        `https://rest.gohighlevel.com/v1/custom-fields/?locationId=${GHL_LOCATION_ID}`,
-        {
-          headers: { Authorization: `Bearer ${GHL_API_KEY}` },
-        }
-      );
-
-      const fieldsJson = await fieldsRes.json();
-
-      const field = fieldsJson.customFields?.find(
-        (f: any) =>
-          f.name.toLowerCase() === 'contact.documento_de_identidad'
-      );
-
-      if (field) documentoFieldId = field.id;
-    }
+    const phoneE164 = celular ? `+51${celular}` : undefined;
 
     // ----------------------------------------------------------------------
-    // 5. Crear contacto en GHL
+    // 4. Notas para el contacto
     // ----------------------------------------------------------------------
     const notas = [
       lugarProspeccion && `Lugar: ${lugarProspeccion}`,
       proyectoInteres && `Proyecto: ${proyectoInteres}`,
       presupuesto && `Presupuesto: ${presupuesto}`,
       modalidadPago && `Pago: ${modalidadPago}`,
+      documentoIdentidad &&
+        `Doc. identidad: ${documentoIdentidad}`,
       comentarios && `Comentarios: ${comentarios}`,
     ]
       .filter(Boolean)
       .join(' | ');
 
+    // ----------------------------------------------------------------------
+    // 5. Crear / upsert contacto en GHL (LeadConnector)
+    // ----------------------------------------------------------------------
     const contactPayload: any = {
       locationId: GHL_LOCATION_ID,
-      source: 'Campo',
       firstName: nombre,
       lastName: apellido,
-      phone: celular,
-      email,
+      email: email || undefined,
+      phone: phoneE164,
+      source: 'CAMPO',
       notes: notas,
+      assignedTo: ownerId,
     };
 
-    if (documentoFieldId && documentoIdentidad) {
-      contactPayload.customField = [
-        { id: documentoFieldId, value: documentoIdentidad },
-      ];
-    }
-
     const contactRes = await fetch(
-      'https://rest.gohighlevel.com/v1/contacts/',
+      'https://services.leadconnectorhq.com/contacts/upsert',
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GHL_API_KEY}`,
-        },
+        headers: baseHeaders,
         body: JSON.stringify(contactPayload),
       }
     );
 
     if (!contactRes.ok) {
-      const text = await contactRes.text();
-      console.error(text);
+      const text = await contactRes.text().catch(() => '');
+      console.error('GHL contact error:', contactRes.status, text);
       return NextResponse.json(
         { error: 'No se pudo crear el contacto en GHL.' },
         { status: 500 }
       );
     }
 
-    const contactJson = await contactRes.json();
-    const contactId = contactJson.id || contactJson.contactId || contactJson.contact?.id;
+    const contactJson: any = await contactRes.json().catch(() => ({}));
+    const contactId =
+      contactJson?.id ||
+      contactJson?.contact?.id ||
+      contactJson?.contactId;
+
+    if (!contactId) {
+      console.error('GHL contact sin id:', contactJson);
+      return NextResponse.json(
+        { error: 'No se obtuvo el ID de contacto en GHL.' },
+        { status: 500 }
+      );
+    }
 
     // ----------------------------------------------------------------------
-    // 6. Crear oportunidad en GHL
+    // 6. Crear oportunidad en GHL en pipeline fijo + stage OPORTUNIDAD RECIBIDA
     // ----------------------------------------------------------------------
     const opportunityPayload = {
-      title: `${nombre} ${apellido}`,
-      contactId,
-      pipelineId: pipeline.id,
-      stageId: stage.id,
       locationId: GHL_LOCATION_ID,
+      contactId,
+      pipelineId: GHL_PIPELINE_ID,
+      pipelineStageId: GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA,
+      status: 'open',
+      source: 'CAMPO',
+      name: `${nombre} ${apellido}`,
       assignedTo: ownerId,
     };
 
     const oppRes = await fetch(
-      'https://rest.gohighlevel.com/v1/opportunities/',
+      'https://services.leadconnectorhq.com/opportunities/',
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GHL_API_KEY}`,
-        },
+        headers: baseHeaders,
         body: JSON.stringify(opportunityPayload),
       }
     );
 
     if (!oppRes.ok) {
-      const text = await oppRes.text();
-      console.error(text);
+      const text = await oppRes.text().catch(() => '');
+      console.error('GHL opportunity error:', oppRes.status, text);
       return NextResponse.json(
         { error: 'No se pudo crear la oportunidad en GHL.' },
         { status: 500 }
@@ -237,7 +191,10 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: 'Error interno.' }, { status: 500 });
+    console.error('Error interno /api/tradicional/campo:', err);
+    return NextResponse.json(
+      { error: 'Error interno.' },
+      { status: 500 }
+    );
   }
 }
