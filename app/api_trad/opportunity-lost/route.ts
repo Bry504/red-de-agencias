@@ -43,7 +43,7 @@ interface OpportunityLostClean {
   hl_opportunity_id: string;
   propietario_ghl_id: string | null;
   motivo_de_perdida: string | null;
-  pipeline_text: string | null;
+  pipeline_text: string | null; // texto que manda el webhook
 }
 
 // ==============================
@@ -246,44 +246,13 @@ export async function POST(req: NextRequest) {
     }
 
     // --------------------------------------------------
-    // 9) Resolver pipeline (pipelines.nombre -> pipelines.id)
-    // --------------------------------------------------
-    let pipelineId: string | null = null;
-
-    if (cleaned.pipeline_text) {
-      const { data: pipelineRow, error: pipelineError } = await supabase
-        .from('pipelines')
-        .select('id')
-        .eq('nombre', cleaned.pipeline_text)  // 👈 usa columna `nombre`
-        .maybeSingle();
-
-      if (pipelineError) {
-        console.error(
-          '[TRAD opportunity-lost] Error buscando pipeline en pipelines:',
-          pipelineError
-        );
-      } else if (pipelineRow?.id) {
-        pipelineId = pipelineRow.id as string;
-      } else {
-        console.warn(
-          '[TRAD opportunity-lost] No se encontró pipeline con nombre =',
-          cleaned.pipeline_text
-        );
-      }
-    } else {
-      console.warn(
-        '[TRAD opportunity-lost] Payload sin pipeline_text. Se insertará pipeline = null.'
-      );
-    }
-
-    // --------------------------------------------------
-    // 10) Insertar en op_perdidas
+    // 9) Insertar en op_perdidas (pipeline como texto directo)
     // --------------------------------------------------
     const insertPayload: Record<string, unknown> = {
       oportunidad: oportunidadId,           // FK a oportunidades.id
       propietario: propietarioId,           // FK a usuarios.id (puede ser null)
       motivo_de_perdida: cleaned.motivo_de_perdida,
-      pipeline: pipelineId,                 // FK a pipelines.id (puede ser null)
+      pipeline: cleaned.pipeline_text,      // 👈 texto directo del webhook
       etapa_de_perdida: etapaDePerdida,     // última etapa en historial_etapas
     };
 
@@ -321,7 +290,7 @@ export async function POST(req: NextRequest) {
         oportunidad: oportunidadId,
         propietario: propietarioId,
         motivo_de_perdida: cleaned.motivo_de_perdida,
-        pipeline: pipelineId,
+        pipeline: cleaned.pipeline_text,
         etapa_de_perdida: etapaDePerdida,
       },
       { status: 201 }
