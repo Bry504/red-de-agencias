@@ -40,6 +40,7 @@ function getStringField(
 }
 
 interface NoteCreatedClean {
+  hl_opportunity_id: string | null;
   propietario_ghl_id: string | null;
   contacto_hl_id: string | null;
   pipeline_text: string | null;
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
     const root = rawBody;
 
     // --------------------------------------------------
-    // 3) Extraer opportunity y customData si existen (por consistencia)
+    // 3) Extraer opportunity y customData si existen
     // --------------------------------------------------
     let opportunityObj: Record<string, unknown> = {};
     if ('opportunity' in root && isRecord(root['opportunity'])) {
@@ -111,9 +112,23 @@ export async function POST(req: NextRequest) {
     );
 
     // --------------------------------------------------
-    // 4) Limpiar campos que nos interesan
+    // 4) Resolver hl_opportunity_id
+    // --------------------------------------------------
+    let hlOpportunityId =
+      getStringField(customData, 'hl_opportunity_id') ??
+      getStringField(root, 'hl_opportunity_id');
+
+    if (!hlOpportunityId) {
+      hlOpportunityId =
+        getStringField(opportunityObj, 'id') ??
+        getStringField(root, 'opportunity_id');
+    }
+
+    // --------------------------------------------------
+    // 5) Limpiar campos que nos interesan
     // --------------------------------------------------
     const cleaned: NoteCreatedClean = {
+      hl_opportunity_id: hlOpportunityId ?? null,
       propietario_ghl_id:
         getStringField(customData, 'propietario') ??
         getStringField(root, 'propietario'),
@@ -132,7 +147,7 @@ export async function POST(req: NextRequest) {
     console.log('[TRAD note-created] Campos limpios:', cleaned);
 
     // --------------------------------------------------
-    // 5) Resolver propietario (usuarios.ghl_id -> usuarios.id)
+    // 6) Resolver propietario (usuarios.ghl_id -> usuarios.id)
     // --------------------------------------------------
     let propietarioId: string | null = null;
 
@@ -163,7 +178,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --------------------------------------------------
-    // 6) Resolver contacto (contactos.hl_contact_id -> contactos.id)
+    // 7) Resolver contacto (contactos.hl_contact_id -> contactos.id)
     // --------------------------------------------------
     let contactoId: string | null = null;
 
@@ -194,16 +209,44 @@ export async function POST(req: NextRequest) {
     }
 
     // --------------------------------------------------
-    // 7) Insertar en notas
-    //     propietario -> id de usuarios (o null)
-    //     contacto    -> id de contactos (o null)
-    //     pipeline    -> texto directo del webhook
-    //     nota        -> texto de la nota
+    // 8) Resolver pipeline desde la tabla oportunidades
+    // --------------------------------------------------
+    let pipelineFinal: string | null = null;
+
+    if (cleaned.hl_opportunity_id) {
+      const { data: oppRow, error: oppError } = await supabase
+        .from('oportunidades')
+        .select('pipeline')
+        .eq('hl_opportunity_id', cleaned.hl_opportunity_id)
+        .maybeSingle();
+
+      if (oppError) {
+        console.error(
+          '[TRAD note-created] Error buscando oportunidad para pipeline:',
+          oppError
+        );
+      } else if (oppRow && typeof oppRow.pipeline === 'string') {
+        pipelineFinal = (oppRow.pipeline as string).trim() || null;
+      } else {
+        console.warn(
+          '[TRAD note-created] No se encontró oportunidad o pipeline para hl_opportunity_id =',
+          cleaned.hl_opportunity_id
+        );
+      }
+    }
+
+    // Fallback: si no se pudo leer de la tabla, usamos el texto del webhook
+    if (!pipelineFinal) {
+      pipelineFinal = cleaned.pipeline_text ?? null;
+    }
+
+    // --------------------------------------------------
+    // 9) Insertar en notas
     // --------------------------------------------------
     const insertPayload: Record<string, unknown> = {
       propietario: propietarioId,
       contacto: contactoId,
-      pipeline: cleaned.pipeline_text,
+      pipeline: pipelineFinal,
       nota: cleaned.nota,
     };
 
@@ -240,7 +283,7 @@ export async function POST(req: NextRequest) {
         nota_id: inserted?.id ?? null,
         propietario: propietarioId,
         contacto: contactoId,
-        pipeline: cleaned.pipeline_text,
+        pipeline: pipelineFinal,
       },
       { status: 201 }
     );
