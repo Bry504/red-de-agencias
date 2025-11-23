@@ -58,93 +58,115 @@ export default function EntornoPersonalClient() {
     }
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Nombre completo (obligatorio) */}
-      <div>
-        <label className="block font-semibold mb-1">
-          Nombre completo <span className="text-red-600">*</span>
-        </label>
-        <input
-          type="text"
-          name="nombre_completo"
-          value={form.nombre_completo}
-          onChange={handleChange}
-          required
-          className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
-          placeholder="Ej: Juan Pérez"
-        />
-      </div>
+return (
+  <main
+    className="min-h-screen flex flex-col items-center justify-start bg-[#fde9d9] px-4 pt-6 pb-10"
+    style={{ fontFamily: '"Times New Roman", Times, serif' }}
+  >
+    {/* TÍTULOS FUERA DEL CUADRO */}
+    <div className="text-center mb-4">
+      <h1 className="text-3xl sm:text-4xl font-bold text-[#d4551f]">
+        REALTY GRUPO INMOBILIARIO
+      </h1>
+      <h2 className="text-lg sm:text-xl mt-1 text-[#b1451b]">
+        Registro de entorno personal
+      </h2>
+    </div>
 
-      {/* Celular (opcional) */}
-      <div>
-        <label className="block font-semibold mb-1">
-          Celular (opcional)
-        </label>
-        <input
-          type="tel"
-          name="celular"
-          value={form.celular}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
-          placeholder="9 dígitos"
-        />
-      </div>
+    {/* CUADRO BLANCO DEL FORMULARIO */}
+    <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6 sm:p-8 my-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Nombre completo (obligatorio) */}
+        <div>
+          <label className="block font-semibold mb-1 text-black">
+            Nombre completo <span className="text-red-600">*</span>
+          </label>
+          <input
+            type="text"
+            name="nombre_completo"
+            value={form.nombre_completo}
+            onChange={handleChange}
+            required
+            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+            placeholder="Ej: Juan Pérez"
+          />
+        </div>
 
-      {/* Proyecto de interés (opcional) */}
-      <div>
-        <label className="block font-semibold mb-1">
-          Proyecto de interés (opcional)
-        </label>
-        <select
-          name="proyecto_interes"
-          value={form.proyecto_interes}
-          onChange={handleChange}
-          className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+        {/* Celular (opcional) */}
+        <div>
+          <label className="block font-semibold mb-1 text-black">
+            Celular (opcional)
+          </label>
+          <input
+            type="tel"
+            name="celular"
+            value={form.celular}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+            placeholder="9 dígitos"
+          />
+        </div>
+
+        {/* Proyecto de interés (opcional) */}
+        <div>
+          <label className="block font-semibold mb-1 text-black">
+            Proyecto de interés (opcional)
+          </label>
+          <select
+            name="proyecto_interes"
+            value={form.proyecto_interes}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+          >
+            <option value="">Selecciona un proyecto</option>
+            <option value="Bosques de Calango">Bosques de Calango</option>
+            <option value="Asia Pacific Condominio">
+              Asia Pacific Condominio
+            </option>
+            <option value="Pachacamac Luxury">Pachacamac Luxury</option>
+            <option value="Paracas Realty Beach">Paracas Realty Beach</option>
+            <option value="Toscana Garden">Toscana Garden</option>
+            <option value="Buonavista">Buonavista</option>
+            <option value="Altavista">Altavista</option>
+          </select>
+        </div>
+
+        {/* Comentarios (irá a notas) */}
+        <div>
+          <label className="block font-semibold mb-1 text-black">
+            Comentarios / contexto
+          </label>
+          <textarea
+            name="comentarios"
+            value={form.comentarios}
+            onChange={handleChange}
+            rows={4}
+            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+            placeholder="Ej: Amigo del trabajo, está buscando invertir en un lote a mediano plazo..."
+          />
+        </div>
+
+        {/* Mensajes */}
+        {message && (
+          <p className="text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p className="text-red-700 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-[#d4551f] hover:bg-[#b1451b] text-white font-semibold py-2 rounded-md shadow disabled:opacity-60"
         >
-          <option value="">Selecciona un proyecto</option>
-          {/* Usa las mismas opciones del otro formulario */}
-          <option value="Toscana Garden">Toscana Garden</option>
-          <option value="Mala - Bujama Alta">Mala - Bujama Alta</option>
-          <option value="Departamentos Lima">Departamentos Lima</option>
-          {/* agrega aquí las que ya tengas */}
-        </select>
-      </div>
-
-      {/* Comentarios (irá a notas) */}
-      <div>
-        <label className="block font-semibold mb-1">
-          Comentarios / contexto
-        </label>
-        <textarea
-          name="comentarios"
-          value={form.comentarios}
-          onChange={handleChange}
-          rows={4}
-          className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
-          placeholder="Ej: Amigo del trabajo, está buscando invertir en un lote a mediano plazo..."
-        />
-      </div>
-
-      {/* Mensajes */}
-      {message && (
-        <p className="text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-          {message}
-        </p>
-      )}
-      {error && (
-        <p className="text-red-700 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-          {error}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full bg-[#b74b1e] text-white font-semibold py-2 rounded-lg shadow hover:bg-[#a14119] disabled:opacity-60"
-      >
-        {loading ? 'Guardando...' : 'Registrar entorno personal'}
-      </button>
-    </form>
-  );
+          {loading ? 'Guardando...' : 'Registrar entorno personal'}
+        </button>
+      </form>
+    </div>
+  </main>
+);
 }
