@@ -22,6 +22,28 @@ const WEBHOOK_TOKEN =
 // ==============================
 // Helpers
 // ==============================
+
+function parseDateToISO(v: string | null): string | null {
+  if (!v) return null;
+
+  // Quitar sufijos: "st", "nd", "rd", "th"
+  let cleaned = v.replace(/\b(\d+)(st|nd|rd|th)\b/, '$1');
+
+  // Reemplazar comas
+  cleaned = cleaned.replace(/,/g, '');
+
+  // Intentar convertir a Date
+  const d = new Date(cleaned);
+
+  if (isNaN(d.getTime())) {
+    console.warn('Fecha no válida, se envió:', v);
+    return null;
+  }
+
+  // Convertir a YYYY-MM-DD (solo date)
+  return d.toISOString().split('T')[0];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -176,8 +198,10 @@ export async function POST(req: NextRequest) {
       getStringField(root, 'origen');
 
     const fecha_de_nacimiento =
-      getStringField(customData, 'fecha_de_nacimiento') ??
-      getStringField(root, 'fecha_de_nacimiento');
+    parseDateToISO(
+    getStringField(customData, 'fecha_de_nacimiento') ??
+    getStringField(root, 'fecha_de_nacimiento')
+    );
 
     const latitudStr =
       getStringField(customData, 'latitud') ??
