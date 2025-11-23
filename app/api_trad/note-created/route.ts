@@ -40,10 +40,8 @@ function getStringField(
 }
 
 interface NoteCreatedClean {
-  hl_opportunity_id: string | null;
   propietario_ghl_id: string | null;
   contacto_hl_id: string | null;
-  pipeline_text: string | null;
   nota: string | null;
 }
 
@@ -89,13 +87,8 @@ export async function POST(req: NextRequest) {
     const root = rawBody;
 
     // --------------------------------------------------
-    // 3) Extraer opportunity y customData si existen
+    // 3) Extraer customData si existe
     // --------------------------------------------------
-    let opportunityObj: Record<string, unknown> = {};
-    if ('opportunity' in root && isRecord(root['opportunity'])) {
-      opportunityObj = root['opportunity'] as Record<string, unknown>;
-    }
-
     let customData: Record<string, unknown> = {};
     if ('customData' in root && isRecord(root['customData'])) {
       customData = root['customData'] as Record<string, unknown>;
@@ -103,42 +96,20 @@ export async function POST(req: NextRequest) {
 
     console.log('[TRAD note-created] root =', JSON.stringify(root, null, 2));
     console.log(
-      '[TRAD note-created] opportunity =',
-      JSON.stringify(opportunityObj, null, 2)
-    );
-    console.log(
       '[TRAD note-created] customData =',
       JSON.stringify(customData, null, 2)
     );
 
     // --------------------------------------------------
-    // 4) Resolver hl_opportunity_id
-    // --------------------------------------------------
-    let hlOpportunityId =
-      getStringField(customData, 'hl_opportunity_id') ??
-      getStringField(root, 'hl_opportunity_id');
-
-    if (!hlOpportunityId) {
-      hlOpportunityId =
-        getStringField(opportunityObj, 'id') ??
-        getStringField(root, 'opportunity_id');
-    }
-
-    // --------------------------------------------------
-    // 5) Limpiar campos que nos interesan
+    // 4) Limpiar campos que nos interesan
     // --------------------------------------------------
     const cleaned: NoteCreatedClean = {
-      hl_opportunity_id: hlOpportunityId ?? null,
       propietario_ghl_id:
         getStringField(customData, 'propietario') ??
         getStringField(root, 'propietario'),
       contacto_hl_id:
         getStringField(customData, 'contacto') ??
         getStringField(root, 'contacto'),
-      pipeline_text:
-        getStringField(customData, 'pipeline') ??
-        getStringField(root, 'pipeline') ??
-        getStringField(opportunityObj, 'pipeline_name'),
       nota:
         getStringField(customData, 'nota') ??
         getStringField(root, 'nota'),
@@ -147,7 +118,7 @@ export async function POST(req: NextRequest) {
     console.log('[TRAD note-created] Campos limpios:', cleaned);
 
     // --------------------------------------------------
-    // 6) Resolver propietario (usuarios.ghl_id -> usuarios.id)
+    // 5) Resolver propietario (usuarios.ghl_id -> usuarios.id)
     // --------------------------------------------------
     let propietarioId: string | null = null;
 
@@ -178,7 +149,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --------------------------------------------------
-    // 7) Resolver contacto (contactos.hl_contact_id -> contactos.id)
+    // 6) Resolver contacto (contactos.hl_contact_id -> contactos.id)
     // --------------------------------------------------
     let contactoId: string | null = null;
 
@@ -209,45 +180,17 @@ export async function POST(req: NextRequest) {
     }
 
     // --------------------------------------------------
-    // 8) Resolver pipeline desde la tabla oportunidades
-    // --------------------------------------------------
-    let pipelineFinal: string | null = null;
-
-    if (cleaned.hl_opportunity_id) {
-      const { data: oppRow, error: oppError } = await supabase
-        .from('oportunidades')
-        .select('pipeline')
-        .eq('hl_opportunity_id', cleaned.hl_opportunity_id)
-        .maybeSingle();
-
-      if (oppError) {
-        console.error(
-          '[TRAD note-created] Error buscando oportunidad para pipeline:',
-          oppError
-        );
-      } else if (oppRow && typeof oppRow.pipeline === 'string') {
-        pipelineFinal = (oppRow.pipeline as string).trim() || null;
-      } else {
-        console.warn(
-          '[TRAD note-created] No se encontró oportunidad o pipeline para hl_opportunity_id =',
-          cleaned.hl_opportunity_id
-        );
-      }
-    }
-
-    // Fallback: si no se pudo leer de la tabla, usamos el texto del webhook
-    if (!pipelineFinal) {
-      pipelineFinal = cleaned.pipeline_text ?? null;
-    }
-
-    // --------------------------------------------------
-    // 9) Insertar en notas
+    // 7) Insertar en notas
+    //      propietario -> id de usuarios
+    //      contacto    -> id de contactos
+    //      nota        -> texto tal cual
+    //      pipeline    -> siempre "Cartera propia"
     // --------------------------------------------------
     const insertPayload: Record<string, unknown> = {
       propietario: propietarioId,
       contacto: contactoId,
-      pipeline: pipelineFinal,
       nota: cleaned.nota,
+      pipeline: 'Cartera propia',
     };
 
     console.log(
@@ -283,7 +226,7 @@ export async function POST(req: NextRequest) {
         nota_id: inserted?.id ?? null,
         propietario: propietarioId,
         contacto: contactoId,
-        pipeline: pipelineFinal,
+        pipeline: 'Cartera propia',
       },
       { status: 201 }
     );
