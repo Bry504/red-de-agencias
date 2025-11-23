@@ -40,8 +40,8 @@ function getStringField(
 }
 
 interface AppointmentClean {
-  contacto_raw: string | null;
-  propietario_ghl_id: string | null;
+  contacto_raw: string | null;            // hl_contact_id (GHL)
+  propietario_ghl_id: string | null;      // user id GHL
   ghl_appointment_id: string | null;
   tipo_raw: string | null;
   fecha_hora_inicio: string | null;
@@ -130,30 +130,59 @@ export async function POST(req: NextRequest) {
     console.log('[TRAD appointment] Campos limpios:', cleaned);
 
     // --------------------------------------------------
-    // 5) Resolver oportunidad (desde tabla oportunidades)
-    //     contacto_raw -> oportunidades.contacto_id -> oportunidades.id
+    // 5) Resolver oportunidad
+    //
+    // contacto_raw (hl_contact_id GHL)
+    //   -> contactos.hl_contact_id = contacto_raw -> contactos.id
+    //   -> oportunidades.contacto_id = contactos.id -> oportunidades.id
     // --------------------------------------------------
     let oportunidadId: string | null = null;
 
     if (cleaned.contacto_raw) {
-      const { data: oppRow, error: oppError } = await supabase
-        .from('oportunidades')
+      // 5.1 Buscar contacto local
+      let contactoLocalId: string | null = null;
+
+      const { data: contactoRow, error: contactoError } = await supabase
+        .from('contactos')
         .select('id')
-        .eq('contacto_id', cleaned.contacto_raw)
+        .eq('hl_contact_id', cleaned.contacto_raw)
         .maybeSingle();
 
-      if (oppError) {
+      if (contactoError) {
         console.error(
-          '[TRAD appointment] Error buscando oportunidad por contacto_id:',
-          oppError
+          '[TRAD appointment] Error buscando contacto por hl_contact_id:',
+          contactoError
         );
-      } else if (oppRow?.id) {
-        oportunidadId = oppRow.id as string;
+      } else if (contactoRow?.id) {
+        contactoLocalId = contactoRow.id as string;
       } else {
         console.warn(
-          '[TRAD appointment] No se encontró oportunidad con contacto_id =',
+          '[TRAD appointment] No se encontró contacto con hl_contact_id =',
           cleaned.contacto_raw
         );
+      }
+
+      // 5.2 Buscar oportunidad por contacto_id (si encontramos el contacto)
+      if (contactoLocalId) {
+        const { data: oppRow, error: oppError } = await supabase
+          .from('oportunidades')
+          .select('id')
+          .eq('contacto_id', contactoLocalId)
+          .maybeSingle();
+
+        if (oppError) {
+          console.error(
+            '[TRAD appointment] Error buscando oportunidad por contacto_id (local):',
+            oppError
+          );
+        } else if (oppRow?.id) {
+          oportunidadId = oppRow.id as string;
+        } else {
+          console.warn(
+            '[TRAD appointment] No se encontró oportunidad con contacto_id local =',
+            contactoLocalId
+          );
+        }
       }
     } else {
       console.warn(
