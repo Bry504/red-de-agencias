@@ -41,8 +41,17 @@ function getStringField(
 
 function toNumberOrNull(v: string | null): number | null {
   if (!v) return null;
-  const n = Number(v);
-  return Number.isNaN(n) ? null : n;
+
+  // 1) Dejamos solo dígitos, comas, puntos y signo
+  const cleaned = v.replace(/[^\d,.\-]/g, '');
+
+  // 2) Asumimos que las comas son separadores de miles -> las quitamos
+  const normalized = cleaned.replace(/,/g, '');
+
+  // 3) Parseamos el número
+  const num = parseFloat(normalized);
+
+  return Number.isNaN(num) ? null : num;
 }
 
 // ==============================
