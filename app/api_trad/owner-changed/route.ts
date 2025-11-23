@@ -49,9 +49,7 @@ interface OwnerChangedClean {
 // ==============================
 export async function POST(req: NextRequest) {
   try {
-    // --------------------------------------------------
-    // 1) Validar token ?token=...
-    // --------------------------------------------------
+    // 1) Validar token
     const url = new URL(req.url);
     const tokenFromQuery = url.searchParams.get('token');
 
@@ -70,9 +68,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --------------------------------------------------
     // 2) Leer body
-    // --------------------------------------------------
     const rawBody: unknown = await req.json().catch(() => null);
 
     if (!isRecord(rawBody)) {
@@ -85,9 +81,7 @@ export async function POST(req: NextRequest) {
 
     const root = rawBody;
 
-    // --------------------------------------------------
-    // 3) Extraer customData si existe
-    // --------------------------------------------------
+    // 3) Extraer customData
     let customData: Record<string, unknown> = {};
     if ('customData' in root && isRecord(root['customData'])) {
       customData = root['customData'] as Record<string, unknown>;
@@ -99,9 +93,7 @@ export async function POST(req: NextRequest) {
       JSON.stringify(customData, null, 2)
     );
 
-    // --------------------------------------------------
-    // 4) Limpiar campos que nos interesan
-    // --------------------------------------------------
+    // 4) Limpiar campos
     const cleaned: OwnerChangedClean = {
       hl_opportunity_id:
         getStringField(customData, 'oportunidad') ??
@@ -129,9 +121,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --------------------------------------------------
-    // 5) Buscar oportunidad por hl_opportunity_id
-    // --------------------------------------------------
+    // 5) Buscar oportunidad
     const { data: oppRow, error: oppError } = await supabase
       .from('oportunidades')
       .select('id, propietario_id')
@@ -161,11 +151,11 @@ export async function POST(req: NextRequest) {
     }
 
     const oportunidadId = oppRow.id as string;
-    const propietarioAnteriorId = (oppRow.propietario_id ?? null) as string | null;
+    const propietarioAnteriorId = (oppRow.propietario_id ?? null) as
+      | string
+      | null;
 
-    // --------------------------------------------------
-    // 6) Resolver nuevo propietario (usuarios.ghl_id -> usuarios.id)
-// --------------------------------------------------
+    // 6) Resolver nuevo propietario
     const { data: nuevoUsuarioRow, error: nuevoUsuarioError } = await supabase
       .from('usuarios')
       .select('id')
@@ -196,9 +186,7 @@ export async function POST(req: NextRequest) {
 
     const propietarioActualId = nuevoUsuarioRow.id as string;
 
-    // --------------------------------------------------
-    // 7) Verificar si realmente hubo cambio de dueño
-    // --------------------------------------------------
+    // 7) Verificar si realmente hubo cambio
     if (propietarioAnteriorId && propietarioAnteriorId === propietarioActualId) {
       console.log(
         '[TRAD owner-changed] Mismo propietario. No se registra reasignación.'
@@ -209,16 +197,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // --------------------------------------------------
-    // 8) Insertar en reasignaciones
-    // --------------------------------------------------
-    const nowIso = new Date().toISOString();
-
+    // 8) Insertar en reasignaciones (SIN changed_at)
     const insertPayload: Record<string, unknown> = {
       oportunidad: oportunidadId,
       propietario_anterior: propietarioAnteriorId,
       propietario_actual: propietarioActualId,
-      changed_at: nowIso, // si tienes esta columna; si no, quítala
     };
 
     console.log(
