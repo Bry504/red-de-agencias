@@ -2,6 +2,7 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
+import Link from 'next/link';
 
 export default function FormularioDeCampoClient() {
   const [loading, setLoading] = useState(false);
@@ -332,6 +333,13 @@ export default function FormularioDeCampoClient() {
           {loading ? 'REGISTRANDO...' : 'REGISTRAR'}
         </button>
       </form>
+
+      <Link href="/tradicional/entorno-personal">
+        <button className="px-4 py-2 rounded-lg bg-[#b74b1e] text-white text-sm font-semibold shadow hover:bg-[#a14119]">
+          Registrar entorno personal
+        </button>
+      </Link>
+      
     </div>
   </main>
 );
