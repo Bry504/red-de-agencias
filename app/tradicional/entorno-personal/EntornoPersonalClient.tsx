@@ -73,10 +73,12 @@ return (
       </h2>
     </div>
 
-    {/* CUADRO BLANCO DEL FORMULARIO */}
+    {/* FORMULARIO DENTRO DEL CUADRO */}
     <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6 sm:p-8 my-4">
+
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Nombre completo (obligatorio) */}
+        
+        {/* Nombre completo */}
         <div>
           <label className="block font-semibold mb-1 text-black">
             Nombre completo <span className="text-red-600">*</span>
@@ -87,12 +89,12 @@ return (
             value={form.nombre_completo}
             onChange={handleChange}
             required
-            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+            className="w-full border border-gray-300 rounded-md px-3 py-2"
             placeholder="Ej: Juan Pérez"
           />
         </div>
 
-        {/* Celular (opcional) */}
+        {/* Celular opcional */}
         <div>
           <label className="block font-semibold mb-1 text-black">
             Celular (opcional)
@@ -102,12 +104,12 @@ return (
             name="celular"
             value={form.celular}
             onChange={handleChange}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+            className="w-full border border-gray-300 rounded-md px-3 py-2"
             placeholder="9 dígitos"
           />
         </div>
 
-        {/* Proyecto de interés (opcional) */}
+        {/* Proyecto de interés */}
         <div>
           <label className="block font-semibold mb-1 text-black">
             Proyecto de interés (opcional)
@@ -116,22 +118,16 @@ return (
             name="proyecto_interes"
             value={form.proyecto_interes}
             onChange={handleChange}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
+            className="w-full border border-gray-300 rounded-md px-3 py-2"
           >
             <option value="">Selecciona un proyecto</option>
-            <option value="Bosques de Calango">Bosques de Calango</option>
-            <option value="Asia Pacific Condominio">
-              Asia Pacific Condominio
-            </option>
-            <option value="Pachacamac Luxury">Pachacamac Luxury</option>
-            <option value="Paracas Realty Beach">Paracas Realty Beach</option>
             <option value="Toscana Garden">Toscana Garden</option>
-            <option value="Buonavista">Buonavista</option>
-            <option value="Altavista">Altavista</option>
+            <option value="Mala - Bujama Alta">Mala - Bujama Alta</option>
+            <option value="Departamentos Lima">Departamentos Lima</option>
           </select>
         </div>
 
-        {/* Comentarios (irá a notas) */}
+        {/* Comentarios */}
         <div>
           <label className="block font-semibold mb-1 text-black">
             Comentarios / contexto
@@ -141,8 +137,8 @@ return (
             value={form.comentarios}
             onChange={handleChange}
             rows={4}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 outline-none focus:ring-2 focus:ring-[#b74b1e]"
-            placeholder="Ej: Amigo del trabajo, está buscando invertir en un lote a mediano plazo..."
+            className="w-full border border-gray-300 rounded-md px-3 py-2"
+            placeholder="Ej: Amigo del trabajo, está buscando invertir a mediano plazo..."
           />
         </div>
 
@@ -152,19 +148,22 @@ return (
             {message}
           </p>
         )}
+
         {error && (
           <p className="text-red-700 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
             {error}
           </p>
         )}
 
+        {/* Botón */}
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-[#d4551f] hover:bg-[#b1451b] text-white font-semibold py-2 rounded-md shadow disabled:opacity-60"
+          className="w-full bg-[#d4551f] hover:bg-[#b1451b] text-white font-semibold py-2 rounded-md disabled:opacity-60"
         >
           {loading ? 'Guardando...' : 'Registrar entorno personal'}
         </button>
+
       </form>
     </div>
   </main>
