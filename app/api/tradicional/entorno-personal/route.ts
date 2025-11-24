@@ -12,21 +12,30 @@ const supabase = createClient(
 );
 
 // ==============================
-// HighLevel API config (API 2.0)
+// GHL
 // ==============================
-const GHL_API_BASE = process.env.GHL_API_BASE_URL ?? 'https://services.leadconnectorhq.com';
-const GHL_API_KEY = process.env.GHL_API_KEY;
-const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID;
+const GHL_API_KEY = process.env.GHL_API_KEY!;
+const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID!;
+const GHL_PIPELINE_ID = process.env.GHL_PIPELINE_ID!;
+const GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA =
+  process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA!;
 
-const GHL_PIPELINE_ID = process.env.GHL_PIPELINE_ID;
-const GHL_STAGE_ID_OP_RECIBIDA = process.env.GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA;
+// custom fields de CONTACTO
+const GHL_CF_ORIGEN_ID = process.env.GHL_CF_ORIGEN_ID!;        // ORIGEN
+const GHL_CF_LATITUD_ID = process.env.GHL_CF_LATITUD_ID!;      // LATITUD
+const GHL_CF_LONGITUD_ID = process.env.GHL_CF_LONGITUD_ID!;    // LONGITUD
 
-// IDs de custom fields para latitud / longitud en HL
-const GHL_CF_LATITUD_ID = process.env.GHL_CF_LATITUD_ID;
-const GHL_CF_LONGITUD_ID = process.env.GHL_CF_LONGITUD_ID;
+// headers estándar para GHL
+const ghlHeaders = {
+  Authorization: `Bearer ${GHL_API_KEY}`,
+  Accept: 'application/json',
+  'Content-Type': 'application/json',
+  Version: '2021-07-28',
+  'Location-Id': GHL_LOCATION_ID,
+} as const;
 
 // ==============================
-// Helpers
+// Tipos y helpers
 // ==============================
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -37,9 +46,9 @@ interface EntornoPersonalPayload {
   celular?: string | null;
   proyecto_interes?: string | null;
   comentarios?: string | null;
-  token?: string | null;     // usuarios.id
-  latitud?: number | null;
-  longitud?: number | null;
+  token?: string | null;  // usuarios.id
+  lat?: number | null;
+  lon?: number | null;
 }
 
 function normalizarCelularPeru(raw: string | null | undefined): string | null {
@@ -47,7 +56,7 @@ function normalizarCelularPeru(raw: string | null | undefined): string | null {
   const digits = raw.replace(/\D/g, '');
   const solo9 = digits.slice(-9);
   if (!solo9) return null;
-  // Enviamos en formato E.164 (+51...)
+  // formato E.164
   return `+51${solo9}`;
 }
 
@@ -56,14 +65,6 @@ function normalizarCelularPeru(raw: string | null | undefined): string | null {
 // ==============================
 export async function POST(req: NextRequest) {
   try {
-    if (!GHL_API_KEY || !GHL_LOCATION_ID || !GHL_PIPELINE_ID || !GHL_STAGE_ID_OP_RECIBIDA) {
-      console.error('[ENTORNO-PERSONAL] Faltan variables de entorno de GHL');
-      return NextResponse.json(
-        { ok: false, error: 'Configuración de GHL incompleta en el servidor.' },
-        { status: 500 }
-      );
-    }
-
     const body: unknown = await req.json().catch(() => null);
 
     if (!isRecord(body)) {
@@ -76,14 +77,30 @@ export async function POST(req: NextRequest) {
     const payload = body as Partial<EntornoPersonalPayload>;
 
     const nombre_completo = (payload.nombre_completo ?? '').trim();
-    const celularRaw = (payload.celular ?? '').toString().trim() || null;
-    const proyecto_interes = (payload.proyecto_interes ?? '').toString().trim() || null;
-    const comentarios = (payload.comentarios ?? '').toString().trim() || null;
-    const token = (payload.token ?? '').toString().trim() || null;
-    const latitud =
-      typeof payload.latitud === 'number' ? payload.latitud : null;
-    const longitud =
-      typeof payload.longitud === 'number' ? payload.longitud : null;
+    const celularRaw =
+      payload.celular !== undefined && payload.celular !== null
+        ? String(payload.celular).trim()
+        : null;
+    const proyecto_interes =
+      payload.proyecto_interes !== undefined && payload.proyecto_interes !== null
+        ? String(payload.proyecto_interes).trim()
+        : null;
+    const comentarios =
+      payload.comentarios !== undefined && payload.comentarios !== null
+        ? String(payload.comentarios).trim()
+        : null;
+    const token =
+      payload.token !== undefined && payload.token !== null
+        ? String(payload.token).trim()
+        : null;
+    const lat =
+      typeof payload.lat === 'number'
+        ? payload.lat
+        : null;
+    const lon =
+      typeof payload.lon === 'number'
+        ? payload.lon
+        : null;
 
     if (!nombre_completo) {
       return NextResponse.json(
@@ -99,7 +116,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1) Verificar que no exista otro contacto con el mismo nombre en Supabase
+    // 1) Verificar duplicado en Supabase por nombre
     const { data: existingContact, error: existingError } = await supabase
       .from('contactos')
       .select('id')
@@ -144,6 +161,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ownerGhlId = usuarioRow?.ghl_id ?? null;
+
     if (!ownerGhlId) {
       console.warn(
         '[ENTORNO-PERSONAL] No se encontró ghl_id para el usuario con id =',
@@ -151,127 +169,175 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 3) Crear CONTACTO en GHL (upsert) con ORIGEN = "Entorno personal"
     const phone = normalizarCelularPeru(celularRaw);
 
-    // 3) Crear contacto en GHL
-    const customFields: Array<{ id: string; value: string | number }> = [];
+    const contactCustomFields: Array<{ id: string; value: string }> = [];
 
-    if (GHL_CF_LATITUD_ID && latitud !== null) {
-      customFields.push({ id: GHL_CF_LATITUD_ID, value: latitud });
+    // ORIGEN: ENTORNO PERSONAL
+    if (GHL_CF_ORIGEN_ID) {
+      contactCustomFields.push({
+        id: GHL_CF_ORIGEN_ID,
+        value: 'Entorno personal',
+      });
     }
-    if (GHL_CF_LONGITUD_ID && longitud !== null) {
-      customFields.push({ id: GHL_CF_LONGITUD_ID, value: longitud });
+
+    // LATITUD
+    if (GHL_CF_LATITUD_ID && typeof lat === 'number') {
+      contactCustomFields.push({
+        id: GHL_CF_LATITUD_ID,
+        value: String(lat),
+      });
     }
 
-    const notasPieces: string[] = [];
-    if (proyecto_interes) notasPieces.push(`Proyecto de interés: ${proyecto_interes}`);
-    if (comentarios) notasPieces.push(`Comentarios: ${comentarios}`);
-    const notas = notasPieces.join(' | ');
+    // LONGITUD
+    if (GHL_CF_LONGITUD_ID && typeof lon === 'number') {
+      contactCustomFields.push({
+        id: GHL_CF_LONGITUD_ID,
+        value: String(lon),
+      });
+    }
 
-    const contactBody: Record<string, any> = {
+    const contactPayload: any = {
       locationId: GHL_LOCATION_ID,
       firstName: nombre_completo,
-      source: 'Entorno personal',
     };
 
-    if (phone) contactBody.phone = phone;
-    if (notas) contactBody.notes = notas;
-    if (customFields.length > 0) contactBody.customFields = customFields;
+    if (phone) contactPayload.phone = phone;
 
-    const contactRes = await fetch(`${GHL_API_BASE}/contacts/`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${GHL_API_KEY}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Version: '2021-07-28',
-      },
-      body: JSON.stringify(contactBody),
-    });
+    if (contactCustomFields.length > 0) {
+      contactPayload.customFields = contactCustomFields;
+    }
 
-    const contactJson = await contactRes.json().catch(() => null);
+    const contactRes = await fetch(
+      'https://services.leadconnectorhq.com/contacts/upsert',
+      {
+        method: 'POST',
+        headers: ghlHeaders,
+        body: JSON.stringify(contactPayload),
+      }
+    );
 
     if (!contactRes.ok) {
-      console.error('[ENTORNO-PERSONAL] Error creando contacto en GHL:', {
-        status: contactRes.status,
-        body: contactJson,
-      });
+      const text = await contactRes.text().catch(() => '');
+      console.error(
+        '[ENTORNO-PERSONAL] GHL contact error:',
+        contactRes.status,
+        text
+      );
       return NextResponse.json(
         { ok: false, error: 'ghl_contact_error' },
         { status: 502 }
       );
     }
 
+    const contactJson = await contactRes.json().catch(() => ({}));
     const contactId =
-      (contactJson && (contactJson.id || contactJson.contact?.id || contactJson.data?.id)) ??
-      null;
+      contactJson.id ||
+      contactJson.contact?.id ||
+      contactJson.data?.id ||
+      contactJson.result?.id;
 
     if (!contactId) {
-      console.error('[ENTORNO-PERSONAL] No se pudo resolver contactId de la respuesta GHL:', contactJson);
+      console.error(
+        '[ENTORNO-PERSONAL] GHL contact response sin id:',
+        contactJson
+      );
       return NextResponse.json(
         { ok: false, error: 'ghl_contact_id_missing' },
         { status: 502 }
       );
     }
 
-    // 4) Crear oportunidad en GHL (Cartera propia / Oportunidad recibida)
-    const oppBody: Record<string, any> = {
+    // 4) Crear NOTA en GHL (proyecto + comentarios + otros datos)
+    const partesNota = [
+      proyecto_interes && `Proyecto de interés: ${proyecto_interes}`,
+      comentarios && `Comentarios: ${comentarios}`,
+      celularRaw && `Celular registrado: ${celularRaw}`,
+      typeof lat === 'number' && typeof lon === 'number'
+        ? `Coordenadas: ${lat}, ${lon}`
+        : null,
+      'Origen: Entorno personal',
+    ].filter(Boolean);
+
+    const notaTexto = partesNota.join('\n');
+
+    if (notaTexto) {
+      try {
+        const noteRes = await fetch(
+          `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(
+            String(contactId)
+          )}/notes`,
+          {
+            method: 'POST',
+            headers: ghlHeaders,
+            body: JSON.stringify({ body: notaTexto }),
+          }
+        );
+
+        if (!noteRes.ok) {
+          const text = await noteRes.text().catch(() => '');
+          console.error(
+            '[ENTORNO-PERSONAL] GHL note error:',
+            noteRes.status,
+            text
+          );
+        }
+      } catch (e) {
+        console.error('[ENTORNO-PERSONAL] Error creando nota en GHL:', e);
+      }
+    }
+
+    // 5) Crear OPORTUNIDAD en GHL (pipeline Cartera propia, etapa Oportunidad recibida)
+    const opportunityPayload: any = {
       locationId: GHL_LOCATION_ID,
+      contactId: String(contactId),
       pipelineId: GHL_PIPELINE_ID,
-      stageId: GHL_STAGE_ID_OP_RECIBIDA,
+      pipelineStageId: GHL_STAGE_ID_OPORTUNIDAD_RECIBIDA,
       status: 'open',
       name: nombre_completo,
-      contactId,
       source: 'Entorno personal',
     };
 
     if (ownerGhlId) {
-      // Campo típico: assignedTo/ownerId depende de cómo tengas configurado HL;
-      // ajústalo si tu doc de API usa otro nombre.
-      oppBody.assignedTo = ownerGhlId;
+      opportunityPayload.assignedTo = String(ownerGhlId);
     }
 
-    const oppRes = await fetch(`${GHL_API_BASE}/opportunities/`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${GHL_API_KEY}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Version: '2021-07-28',
-      },
-      body: JSON.stringify(oppBody),
-    });
-
-    const oppJson = await oppRes.json().catch(() => null);
+    const oppRes = await fetch(
+      'https://services.leadconnectorhq.com/opportunities/',
+      {
+        method: 'POST',
+        headers: ghlHeaders,
+        body: JSON.stringify(opportunityPayload),
+      }
+    );
 
     if (!oppRes.ok) {
-      console.error('[ENTORNO-PERSONAL] Error creando oportunidad en GHL:', {
-        status: oppRes.status,
-        body: oppJson,
-      });
-      // No rompo el contacto, pero aviso al front
+      const text = await oppRes.text().catch(() => '');
+      console.error(
+        '[ENTORNO-PERSONAL] GHL opportunity error:',
+        oppRes.status,
+        text
+      );
+      // Contacto ya está creado, pero hubo problema con la oportunidad
       return NextResponse.json(
         {
-          ok: false,
-          error: 'ghl_opportunity_error',
-          detalle: 'Contacto creado, pero hubo un problema creando la oportunidad en GHL.',
+          ok: true,
+          warning:
+            'Contacto creado, pero no se pudo crear la oportunidad en GHL. Revisa logs.',
         },
-        { status: 502 }
+        { status: 201 }
       );
     }
 
     return NextResponse.json(
-      {
-        ok: true,
-        contact_id: contactId,
-        opportunity: oppJson,
-      },
+      { ok: true, message: 'Prospecto de entorno personal creado correctamente.' },
       { status: 201 }
     );
   } catch (err) {
     console.error('[ENTORNO-PERSONAL] Error inesperado:', err);
     return NextResponse.json(
-      { ok: false, error: 'unexpected_error' },
+      { ok: false, error: 'Error interno.' },
       { status: 500 }
     );
   }
