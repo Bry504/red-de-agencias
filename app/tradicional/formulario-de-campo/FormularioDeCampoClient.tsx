@@ -3,12 +3,16 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+
 
 export default function FormularioDeCampoClient() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [usuarioId, setUsuarioId] = useState<string | null | undefined>(undefined);
+  const searchParams = useSearchParams();
+  const token = searchParams.get('t');
 
   // NUEVO: estado para geolocalización
   const [coords, setCoords] = useState<{ lat: number | null; lon: number | null }>({
@@ -334,8 +338,15 @@ export default function FormularioDeCampoClient() {
         </button>
       </form>
 
-      <Link href="/tradicional/entorno-personal">
-        <button className="px-4 py-2 rounded-lg bg-[#b74b1e] text-white text-sm font-semibold shadow hover:bg-[#a14119]">
+      
+      <Link
+        href={
+          token
+            ? `/tradicional/entorno-personal?t=${encodeURIComponent(token)}`
+            : '/tradicional/entorno-personal'
+        }
+      >
+        <button className="px-4 py-2 rounded-lg bg-[#b74b1e] text-white text-sm font-semibold shadow">
           Registrar entorno personal
         </button>
       </Link>
