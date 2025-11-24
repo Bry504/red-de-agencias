@@ -269,8 +269,6 @@ export async function POST(req: NextRequest) {
     if (proyecto_interes)
       partesNota.push(`Proyecto de interés: ${proyecto_interes}`);
     if (comentarios) partesNota.push(`Comentarios: ${comentarios}`);
-    if (lat !== null && lon !== null)
-      partesNota.push(`Coordenadas: ${lat}, ${lon}`);
 
     const notaTexto = partesNota.join('\n');
 
