@@ -348,7 +348,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             ok: false,
-            error: 'duplicate_opportunity',
+            error: 'El nombre del contacto ya ha sido registrado previamente, por favor agréguele un caracter diferente.',
             detail:
               'Este contacto ya tiene una oportunidad abierta en el pipeline. No se creó una nueva.',
           },
