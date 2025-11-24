@@ -336,21 +336,22 @@ export default function FormularioDeCampoClient() {
         >
           {loading ? 'REGISTRANDO...' : 'REGISTRAR'}
         </button>
-      </form>
-
-      
+      </form>    
+    </div>
+    {/* Botón fuera del cuadro */}
+    <div className="w-full max-w-2xl mt-4">
       <Link
         href={
           token
             ? `/tradicional/entorno-personal?t=${encodeURIComponent(token)}`
             : '/tradicional/entorno-personal'
         }
+        className="block"
       >
-        <button className="px-4 py-2 rounded-lg bg-[#b74b1e] text-white text-sm font-semibold shadow">
+        <button className="w-full bg-gray-700 hover:bg-gray-800 text-white font-semibold py-2 rounded-md shadow">
           Registrar entorno personal
         </button>
       </Link>
-      
     </div>
   </main>
 );

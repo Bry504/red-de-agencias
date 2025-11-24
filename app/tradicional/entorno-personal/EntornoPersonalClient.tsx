@@ -179,17 +179,8 @@ export default function EntornoPersonalClient() {
             />
           </div>
 
-          {/* Mensajes */}
-          {message && (
-            <p className="text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-              {message}
-            </p>
-          )}
-          {error && (
-            <p className="text-red-700 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {error}
-            </p>
-          )}
+          {error && <p className="text-red-600">{error}</p>}
+          {message && <p className="text-green-600">{message}</p>}
 
           <button
             type="submit"
