@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
       status: 'open',
       name: `${nombre} ${apellido}`,
       assignedTo: ownerId,
-      source: 'Campo',
+      source: '',
     };
 
     const oppRes = await fetch(

@@ -212,7 +212,7 @@ export async function POST(req: NextRequest) {
     const contactBody: Record<string, any> = {
       locationId: GHL_LOCATION_ID,
       firstName: nombre_completo,
-      source: 'Entorno personal',
+      source: '',
     };
 
     if (phone) contactBody.phone = phone;
@@ -310,7 +310,7 @@ export async function POST(req: NextRequest) {
       status: 'open',
       name: nombre_completo,
       contactId,
-      source: 'Entorno personal',
+      source: '',
     };
 
     if (ownerGhlId) {
