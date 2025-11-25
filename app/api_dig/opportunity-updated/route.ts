@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as string;
@@ -8,25 +8,22 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY as strin
 const WEBHOOK_TOKEN =
   process.env.GHL_WEBHOOK_TOKEN ?? 'pit-f995f6e7-c20a-4b1e-8a5e-a18659542bf5';
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('Faltan variables de entorno de Supabase');
-}
-
-const supabaseAdmin: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
-// --------- Helpers de lectura segura ---------
-
+// Helpers seguros
 type Dict = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Dict => typeof v === 'object' && v !== null;
 
 const get = (o: unknown, p: string): unknown => {
   if (!isObj(o)) return undefined;
-  return p
-    .split('.')
-    .reduce<unknown>((acc, key) => (isObj(acc) ? (acc as Dict)[key] : undefined), o);
+
+  return p.split('.').reduce<unknown>((acc, key) => {
+    if (!isObj(acc)) return undefined;
+    return (acc as Dict)[key];
+  }, o);
 };
 
 const S = (o: unknown, p: string): string | undefined => {
@@ -50,216 +47,138 @@ const N = (o: unknown, p: string): number | undefined => {
   return undefined;
 };
 
-// --------- Tipos ---------
-
-interface OportunidadUpdatePayload {
-  nombre_completo?: string | null;
-  contacto_id?: string | null;
-  propietario_id?: string | null;
-  estado?: string | null;
-  nivel_de_interes?: string | null;
-  tipo_de_cliente?: string | null;
-  producto?: string | null;
-  proyecto?: string | null;
-  modalidad_de_pago?: string | null;
-  motivo_de_seguimiento?: string | null;
-  principales_objeciones?: string | null;
-  arras?: number | null;
-  pipeline?: string | null;
-  // NOTA: no vamos a cambiar hl_opportunity_id aquí,
-  // porque es la clave de búsqueda. Lo dejamos fuera.
-}
-
-// --------- Handler ---------
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
+export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const token = url.searchParams.get('token');
 
     if (token !== WEBHOOK_TOKEN) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      console.error("[opportunity-updated] TOKEN INVALIDO", token);
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
+    // Lee el JSON completo y lo logea
     const root = (await req.json()) as unknown;
+    console.log("[opportunity-updated] Payload recibido:", JSON.stringify(root, null, 2));
 
-    // 1) Campos base del payload
-    const nombreCompleto = S(root, 'nombre_completo');
-    const hlContactId = S(root, 'hl_contact_id');
-    const ghlId = S(root, 'ghl_id');
-
-    const estado = S(root, 'estado');
-    const nivelDeInteres = S(root, 'nivel_de_interes');
-    const tipoDeCliente = S(root, 'tipo_de_cliente');
-    const producto = S(root, 'producto');
-    const proyecto = S(root, 'proyecto');
-    const modalidadDePago = S(root, 'modalidad_de_pago');
-    const motivoDeSeguimiento = S(root, 'motivo_de_seguimiento');
-    const principalesObjeciones = S(root, 'principales_objeciones');
-    const hlOpportunityId = S(root, 'hl_opportunity_id');
-    const pipeline = S(root, 'pipeline');
-
-    // arras puede venir como string o número
-    const arrasNumFromN = N(root, 'arras');
-    const arrasStr = S(root, 'arras');
-    let arras: number | null = null;
-
-    if (typeof arrasNumFromN === 'number') {
-      arras = arrasNumFromN;
-    } else if (arrasStr) {
-      const num = Number(arrasStr.replace(/,/g, '.'));
-      arras = Number.isNaN(num) ? null : num;
-    }
+    // Extrae campos
+    const hlOpportunityId = S(root, "hl_opportunity_id");
+    console.log("[opportunity-updated] hl_opportunity_id extraído:", hlOpportunityId);
 
     if (!hlOpportunityId) {
-      // Sin hl_opportunity_id no sabemos qué fila actualizar.
+      console.error("[opportunity-updated] ERROR: No se envió hl_opportunity_id");
       return NextResponse.json(
-        { ok: false, error: 'Falta hl_opportunity_id en el payload' },
-        { status: 400 },
+        {
+          ok: false,
+          error: "Falta hl_opportunity_id en el payload",
+          detalle: "El webhook fue recibido, pero sin ID de oportunidad",
+        },
+        { status: 400 }
       );
     }
 
-    // 2) Verificamos si existe la oportunidad a actualizar
-    const { data: oportunidadExistente, error: findError } = await supabaseAdmin
-      .from('oportunidades')
-      .select('id')
-      .eq('hl_opportunity_id', hlOpportunityId)
+    // Verifica existencia de oportunidad
+    const { data: opExistente, error: findError } = await supabaseAdmin
+      .from("oportunidades")
+      .select("id")
+      .eq("hl_opportunity_id", hlOpportunityId)
       .maybeSingle();
 
-    if (findError && findError.code !== 'PGRST116') {
-      console.error('[opportunity-updated] Error buscando oportunidad:', findError);
-      return NextResponse.json(
-        { ok: false, error: 'Error al buscar oportunidad' },
-        { status: 500 },
-      );
+    console.log("[opportunity-updated] Resultado búsqueda oportunidad:", {
+      oportunidad_id: opExistente?.id || null,
+      error: findError || null,
+    });
+
+    if (findError && findError.code !== "PGRST116") {
+      console.error("[opportunity-updated] Error buscando oportunidad:", findError);
+      return NextResponse.json({ ok: false, error: "Error buscando oportunidad" }, { status: 500 });
     }
 
-    if (!oportunidadExistente) {
-      // No existe oportunidad con ese hl_opportunity_id -> no hacemos nada
+    if (!opExistente) {
+      console.warn("[opportunity-updated] No existe oportunidad, no se actualiza nada");
       return NextResponse.json(
         {
           ok: true,
           updated: false,
-          message: 'No se encontró oportunidad para este hl_opportunity_id. No se realizó ninguna acción.',
+          message: "No existe una oportunidad con ese hl_opportunity_id",
         },
-        { status: 200 },
+        { status: 200 }
       );
     }
 
-    // 3) Buscamos contacto_id en la tabla contactos por hl_contact_id
-    let contactoId: string | null | undefined = undefined;
+    // Extrae el resto de campos
+    const updatePayload: Record<string, unknown> = {
+      nombre_completo: S(root, "nombre_completo") ?? null,
+      estado: S(root, "estado") ?? null,
+      nivel_de_interes: S(root, "nivel_de_interes") ?? null,
+      tipo_de_cliente: S(root, "tipo_de_cliente") ?? null,
+      producto: S(root, "producto") ?? null,
+      proyecto: S(root, "proyecto") ?? null,
+      modalidad_de_pago: S(root, "modalidad_de_pago") ?? null,
+      motivo_de_seguimiento: S(root, "motivo_de_seguimiento") ?? null,
+      principales_objeciones: S(root, "principales_objeciones") ?? null,
+      pipeline: S(root, "pipeline") ?? null,
+    };
 
+    // arras
+    const arrasNum = N(root, "arras");
+    updatePayload.arras = typeof arrasNum === "number" ? arrasNum : null;
+
+    console.log("[opportunity-updated] Campos base antes de lookup:", updatePayload);
+
+    // Lookup: contacto_id
+    const hlContactId = S(root, "hl_contact_id");
     if (hlContactId) {
-      const { data: contacto, error: contactoError } = await supabaseAdmin
-        .from('contactos')
-        .select('id')
-        .eq('hl_contact_id', hlContactId)
+      const { data: contacto } = await supabaseAdmin
+        .from("contactos")
+        .select("id")
+        .eq("hl_contact_id", hlContactId)
         .maybeSingle();
 
-      if (contactoError && contactoError.code !== 'PGRST116') {
-        console.error('[opportunity-updated] Error buscando contacto:', contactoError);
-      }
-
-      if (contacto && typeof contacto.id === 'string') {
-        contactoId = contacto.id;
-      } else {
-        // Si no encontró contacto para ese hl_contact_id, lo seteamos explícitamente a null
-        contactoId = null;
-      }
+      updatePayload.contacto_id = contacto?.id ?? null;
+      console.log("[opportunity-updated] contacto_id encontrado:", updatePayload.contacto_id);
     }
 
-    // 4) Buscamos propietario_id en la tabla usuarios por ghl_id
-    let propietarioId: string | null | undefined = undefined;
-
+    // Lookup: propietario_id
+    const ghlId = S(root, "ghl_id");
     if (ghlId) {
-      const { data: usuario, error: usuarioError } = await supabaseAdmin
-        .from('usuarios')
-        .select('id')
-        .eq('ghl_id', ghlId)
+      const { data: usuario } = await supabaseAdmin
+        .from("usuarios")
+        .select("id")
+        .eq("ghl_id", ghlId)
         .maybeSingle();
 
-      if (usuarioError && usuarioError.code !== 'PGRST116') {
-        console.error('[opportunity-updated] Error buscando usuario:', usuarioError);
-      }
-
-      if (usuario && typeof usuario.id === 'string') {
-        propietarioId = usuario.id;
-      } else {
-        // Si no se encuentra usuario para ese ghl_id, lo seteamos a null
-        propietarioId = null;
-      }
+      updatePayload.propietario_id = usuario?.id ?? null;
+      console.log("[opportunity-updated] propietario_id encontrado:", updatePayload.propietario_id);
     }
 
-    // 5) Armamos el objeto de actualización.
-    // Solo incluimos campos definidos, para no sobreescribir con undefined.
-    const updatePayload: OportunidadUpdatePayload = {};
+    console.log("[opportunity-updated] Payload FINAL para actualizar:", updatePayload);
 
-    if (typeof nombreCompleto !== 'undefined') {
-      updatePayload.nombre_completo = nombreCompleto ?? null;
-    }
-    if (typeof contactoId !== 'undefined') {
-      updatePayload.contacto_id = contactoId;
-    }
-    if (typeof propietarioId !== 'undefined') {
-      updatePayload.propietario_id = propietarioId;
-    }
-    if (typeof estado !== 'undefined') {
-      updatePayload.estado = estado ?? null;
-    }
-    if (typeof nivelDeInteres !== 'undefined') {
-      updatePayload.nivel_de_interes = nivelDeInteres ?? null;
-    }
-    if (typeof tipoDeCliente !== 'undefined') {
-      updatePayload.tipo_de_cliente = tipoDeCliente ?? null;
-    }
-    if (typeof producto !== 'undefined') {
-      updatePayload.producto = producto ?? null;
-    }
-    if (typeof proyecto !== 'undefined') {
-      updatePayload.proyecto = proyecto ?? null;
-    }
-    if (typeof modalidadDePago !== 'undefined') {
-      updatePayload.modalidad_de_pago = modalidadDePago ?? null;
-    }
-    if (typeof motivoDeSeguimiento !== 'undefined') {
-      updatePayload.motivo_de_seguimiento = motivoDeSeguimiento ?? null;
-    }
-    if (typeof principalesObjeciones !== 'undefined') {
-      updatePayload.principales_objeciones = principalesObjeciones ?? null;
-    }
-    if (typeof arras !== 'undefined') {
-      updatePayload.arras = arras;
-    }
-    if (typeof pipeline !== 'undefined') {
-      updatePayload.pipeline = pipeline ?? null;
-    }
-
-    // 6) Ejecutamos el update
+    // Update final
     const { data: updated, error: updateError } = await supabaseAdmin
-      .from('oportunidades')
+      .from("oportunidades")
       .update(updatePayload)
-      .eq('hl_opportunity_id', hlOpportunityId)
-      .select('id')
+      .eq("hl_opportunity_id", hlOpportunityId)
+      .select("id")
       .maybeSingle();
 
     if (updateError) {
-      console.error('[opportunity-updated] Error actualizando oportunidad:', updateError);
-      return NextResponse.json(
-        { ok: false, error: 'Error actualizando oportunidad' },
-        { status: 500 },
-      );
+      console.error("[opportunity-updated] ERROR actualizando oportunidad:", updateError);
+      return NextResponse.json({ ok: false, error: "Error actualizando oportunidad" }, { status: 500 });
     }
+
+    console.log("[opportunity-updated] UPDATE OK:", updated?.id);
 
     return NextResponse.json(
       {
         ok: true,
         updated: true,
-        oportunidad_id: updated?.id ?? null,
+        oportunidad_id: updated?.id || null,
       },
-      { status: 200 },
+      { status: 200 }
     );
   } catch (err) {
-    console.error('[opportunity-updated] Error inesperado:', err);
-    return NextResponse.json({ ok: false, error: 'Error interno' }, { status: 500 });
+    console.error("[opportunity-updated] ERROR INESPERADO:", err);
+    return NextResponse.json({ ok: false, error: "Error interno" }, { status: 500 });
   }
 }
