@@ -24,7 +24,6 @@ function getStringField(
   return null;
 }
 
-// Normaliza teléfono a últimos 9 dígitos (Perú)
 function normalizePhone(raw: string | null): string | null {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, '');
@@ -32,23 +31,17 @@ function normalizePhone(raw: string | null): string | null {
   return last9 || null;
 }
 
-// Convierte fechas tipo "Nov 11 1995", "Nov 11, 1995", "November 11th 1995", etc. a YYYY-MM-DD
 function parseDateToISO(raw: string | null): string | null {
   if (!raw) return null;
 
-  // Quitar sufijos: "st", "nd", "rd", "th"
   let cleaned = raw.replace(/\b(\d+)(st|nd|rd|th)\b/gi, '$1');
-
-  // Quitar comas
   cleaned = cleaned.replace(/,/g, '').trim();
 
-  // Intentar parseo directo
   let d = new Date(cleaned);
   if (!Number.isNaN(d.getTime())) {
-    return d.toISOString().split('T')[0]; // YYYY-MM-DD
+    return d.toISOString().split('T')[0];
   }
 
-  // Caso: "Nov 11" sin año -> asumimos año actual
   const match = cleaned.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
   if (match) {
     const monthName = match[1];
@@ -60,30 +53,26 @@ function parseDateToISO(raw: string | null): string | null {
     }
   }
 
-  console.warn('[DIG contact-updated] Fecha no válida, se envió:', raw);
+  console.warn('[DIG contact-updated] Fecha inválida:', raw);
   return null;
 }
 
 // ==============================
 // Supabase
 // ==============================
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error('Faltan variables de entorno de Supabase');
-}
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
 // ==============================
-// Token de seguridad
+// Token
 // ==============================
 const WEBHOOK_TOKEN =
   process.env.GHL_DIGITAL_WEBHOOK_TOKEN ??
-  process.env.GHL_API_KEY ?? // tu pit-...
+  process.env.GHL_API_KEY ??
   '';
 
 // ==============================
@@ -91,45 +80,20 @@ const WEBHOOK_TOKEN =
 // ==============================
 export async function POST(req: NextRequest) {
   try {
-    // --------------------------------------------------
-    // 1) Validar token ?token=...
-    // --------------------------------------------------
     const url = new URL(req.url);
     const tokenFromQuery = url.searchParams.get('token');
 
-    console.log('[DIG contact-updated] token query =', tokenFromQuery);
-
     if (!WEBHOOK_TOKEN || !tokenFromQuery || tokenFromQuery !== WEBHOOK_TOKEN) {
-      console.warn(
-        '[DIG contact-updated] Token inválido:',
-        tokenFromQuery,
-        'esperado:',
-        WEBHOOK_TOKEN ? '(definido)' : '(VACÍO)'
-      );
-      return NextResponse.json(
-        { ok: false, error: 'Unauthorized: invalid token' },
-        { status: 401 }
-      );
+      return NextResponse.json({ ok: true, skipped: true });
     }
 
-    // --------------------------------------------------
-    // 2) Leer body bruto
-    // --------------------------------------------------
     const rawBody: unknown = await req.json().catch(() => null);
-
     if (!isRecord(rawBody)) {
-      console.error('[DIG contact-updated] Body no es objeto:', rawBody);
-      return NextResponse.json(
-        { ok: false, error: 'Invalid payload format' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: true, skipped: true });
     }
 
-    const root: JsonRecord = rawBody;
+    const root = rawBody;
 
-    // HighLevel a veces manda:
-    // { contact: {...}, customData: {...}, ... }
-    // pero tú también puedes mandar todo en la raíz.
     let contact: JsonRecord = {};
     if ('contact' in root && isRecord(root['contact'])) {
       contact = root['contact'] as JsonRecord;
@@ -142,52 +106,28 @@ export async function POST(req: NextRequest) {
       customData = root['customData'] as JsonRecord;
     }
 
-    // Logs para depurar si algo falla
-    console.log(
-      '[DIG contact-updated] root =',
-      JSON.stringify(root, null, 2)
-    );
-    console.log(
-      '[DIG contact-updated] contact =',
-      JSON.stringify(contact, null, 2)
-    );
-    console.log(
-      '[DIG contact-updated] customData =',
-      JSON.stringify(customData, null, 2)
-    );
-
-    // --------------------------------------------------
-    // 3) Resolver campos (orden: customData -> root -> contact)
-    // --------------------------------------------------
-
-    // hl_contact_id (OBLIGATORIO para actualizar)
+    // ======================
+    // hl_contact_id obligatorio (pero sin error)
+    // ======================
     const hl_contact_id =
       getStringField(customData, 'hl_contact_id') ??
       getStringField(root, 'hl_contact_id') ??
       getStringField(contact, 'id');
 
     if (!hl_contact_id) {
-      console.warn(
-        '[DIG contact-updated] No se envió hl_contact_id. No se puede actualizar.'
-      );
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'Se requiere hl_contact_id para actualizar el contacto en Supabase.',
-        },
-        { status: 400 }
-      );
+      console.log("[DIG contact-updated] Sin hl_contact_id → skip silencioso");
+      return NextResponse.json({ ok: true, skipped: true });
     }
 
-    // celular
+    // ======================
+    // Resolver campos
+    // ======================
     const celular = normalizePhone(
       getStringField(customData, 'celular') ??
         getStringField(root, 'celular') ??
         getStringField(contact, 'phone')
     );
 
-    // nombre_completo
     let nombre_completo =
       getStringField(customData, 'nombre_completo') ??
       getStringField(root, 'nombre_completo');
@@ -195,8 +135,7 @@ export async function POST(req: NextRequest) {
     if (!nombre_completo) {
       const first = getStringField(contact, 'firstName') ?? '';
       const last = getStringField(contact, 'lastName') ?? '';
-      const combined = `${first} ${last}`.trim();
-      nombre_completo = combined || null;
+      nombre_completo = `${first} ${last}`.trim() || null;
     }
 
     const email =
@@ -237,25 +176,9 @@ export async function POST(req: NextRequest) {
         getStringField(root, 'fecha_de_nacimiento')
     );
 
-    // Log de lo que vamos a actualizar
-    console.log('[DIG contact-updated] Campos mapeados para UPDATE:', {
-      hl_contact_id,
-      nombre_completo,
-      celular,
-      email,
-      nombre_anuncio,
-      conjunto_de_anuncios,
-      nombre_campaña,
-      fuente_digital,
-      documento_de_identidad,
-      proyecto_formulario,
-      id_registro_cliente,
-      fecha_de_nacimiento,
-    });
-
-    // --------------------------------------------------
-    // 4) UPDATE en Supabase por hl_contact_id
-    // --------------------------------------------------
+    // ======================
+    // UPDATE
+    // ======================
     const { data, error } = await supabase
       .from('contactos')
       .update({
@@ -276,44 +199,21 @@ export async function POST(req: NextRequest) {
       .select('id');
 
     if (error) {
-      console.error('[DIG contact-updated] Supabase update error:', error);
-      return NextResponse.json(
-        { ok: false, error: 'No se pudo actualizar el contacto en Supabase.' },
-        { status: 500 }
-      );
+      console.error('[DIG contact-updated] error:', error);
+      return NextResponse.json({ ok: true, skipped: true });
     }
 
     if (!data || data.length === 0) {
-      console.warn(
-        '[DIG contact-updated] No se encontró contacto con hl_contact_id =',
-        hl_contact_id
+      console.log(
+        `[DIG contact-updated] No existe contacto con hl_contact_id=${hl_contact_id} → skip`
       );
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'No existe contacto en Supabase con ese hl_contact_id para actualizar.',
-        },
-        { status: 404 }
-      );
+      return NextResponse.json({ ok: true, skipped: true });
     }
 
-    console.log(
-      '[DIG contact-updated] Update OK, ids =',
-      data.map((row) => row.id)
-    );
+    console.log('[DIG contact-updated] Update OK:', data);
 
-    return NextResponse.json(
-      { ok: true, updated_ids: data.map((row) => row.id) },
-      { status: 200 }
-    );
-  } catch (err: unknown) {
-    console.error('[DIG contact-updated] Error inesperado:', err);
-    const message =
-      err instanceof Error ? err.message : 'Error interno en el endpoint.';
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: true, updated_ids: data.map(r => r.id) });
+  } catch {
+    return NextResponse.json({ ok: true, skipped: true });
   }
 }
