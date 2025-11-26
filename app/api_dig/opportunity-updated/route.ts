@@ -50,15 +50,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const token = url.searchParams.get("token");
 
     if (token !== WEBHOOK_TOKEN) {
-      console.error("[opportunity-updated] TOKEN INVALIDO");
+      console.error("[DIG opportunity-changed] TOKEN INVALIDO:", token);
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const root = (await req.json()) as unknown;
 
-    console.log("[opportunity-updated] Payload:", JSON.stringify(root, null, 2));
+    console.log(
+      "[DIG opportunity-changed] Payload recibido:",
+      JSON.stringify(root, null, 2)
+    );
 
-    // BUSCA EL ID DE VARIAS FORMAS
+    // BUSCA EL ID DE VARIAS FORMAS (hl_opportunity_id)
     const hlOpportunityId =
       S(root, "customData.hl_opportunity_id") ??
       S(root, "hl_opportunity_id") ??
@@ -66,11 +69,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       S(root, "opportunity.id") ??
       S(root, "opportunityId");
 
-    console.log("[opportunity-updated] ID detectado:", hlOpportunityId);
+    console.log("[DIG opportunity-changed] hl_opportunity_id detectado:", hlOpportunityId);
 
     // Si aun así no existe → SKIP sin error
     if (!hlOpportunityId) {
-      console.warn("[opportunity-updated] SKIP: No ID → No se actualiza nada");
+      console.warn("[DIG opportunity-changed] SKIP: No hl_opportunity_id → No se actualiza nada");
       return NextResponse.json(
         {
           ok: true,
@@ -81,20 +84,41 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Buscar oportunidad
-    const { data: opExistente } = await supabaseAdmin
+    // Buscar oportunidad (necesitamos id y pipeline actual)
+    const { data: opExistente, error: findError } = await supabaseAdmin
       .from("oportunidades")
-      .select("id")
+      .select("id, pipeline")
       .eq("hl_opportunity_id", hlOpportunityId)
       .maybeSingle();
 
+    if (findError) {
+      console.error(
+        "[DIG opportunity-changed] Error buscando oportunidad:",
+        findError
+      );
+      return NextResponse.json(
+        { ok: false, error: "Error buscando oportunidad" },
+        { status: 500 }
+      );
+    }
+
     if (!opExistente) {
-      console.warn("[opportunity-updated] SKIP: no existe oportunidad con ese ID");
+      console.warn(
+        "[DIG opportunity-changed] SKIP: no existe oportunidad con ese hl_opportunity_id"
+      );
       return NextResponse.json(
         { ok: true, updated: false, reason: "skip: no existe oportunidad" },
         { status: 200 }
       );
     }
+
+    const oportunidadId = opExistente.id as string;
+    const pipelineAnterior = (opExistente.pipeline ?? null) as string | null;
+
+    console.log("[DIG opportunity-changed] Oportunidad encontrada:", {
+      oportunidadId,
+      pipelineAnterior,
+    });
 
     // Extraer campos desde customData
     const nombreCompleto =
@@ -110,22 +134,44 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const modalidadDePago = S(root, "customData.modalidad_de_pago");
     const motivoDeSeguimiento = S(root, "customData.motivo_de_seguimiento");
     const principalesObjeciones = S(root, "customData.principales_objeciones");
-    const pipeline = S(root, "customData.pipeline");
+    const pipelineNuevo = S(root, "customData.pipeline");
 
     const arras = N(root, "customData.arras") ?? null;
+
+    console.log("[DIG opportunity-changed] Campos base:", {
+      nombreCompleto,
+      estado,
+      nivelDeInteres,
+      tipoDeCliente,
+      producto,
+      proyecto,
+      modalidadDePago,
+      motivoDeSeguimiento,
+      principalesObjeciones,
+      pipelineNuevo,
+      arras,
+    });
 
     // contacto_id
     let contactoId: string | null = null;
     const hlContactId = S(root, "customData.hl_contact_id") ?? S(root, "contact_id");
 
     if (hlContactId) {
-      const { data: contacto } = await supabaseAdmin
+      const { data: contacto, error: contactoError } = await supabaseAdmin
         .from("contactos")
         .select("id")
         .eq("hl_contact_id", hlContactId)
         .maybeSingle();
 
+      if (contactoError) {
+        console.error(
+          "[DIG opportunity-changed] Error buscando contacto:",
+          contactoError
+        );
+      }
+
       contactoId = contacto?.id ?? null;
+      console.log("[DIG opportunity-changed] contacto_id resuelto:", contactoId);
     }
 
     // propietario_id
@@ -133,16 +179,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const ghlId = S(root, "customData.ghl_id");
 
     if (ghlId) {
-      const { data: usuario } = await supabaseAdmin
+      const { data: usuario, error: usuarioError } = await supabaseAdmin
         .from("usuarios")
         .select("id")
         .eq("ghl_id", ghlId)
         .maybeSingle();
 
+      if (usuarioError) {
+        console.error(
+          "[DIG opportunity-changed] Error buscando usuario:",
+          usuarioError
+        );
+      }
+
       propietarioId = usuario?.id ?? null;
+      console.log("[DIG opportunity-changed] propietario_id resuelto:", propietarioId);
     }
 
-    // Construir payload
+    // Construir payload de actualización
     const updatePayload: Record<string, unknown> = {
       nombre_completo: nombreCompleto ?? null,
       estado: estado ?? null,
@@ -154,24 +208,87 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       motivo_de_seguimiento: motivoDeSeguimiento ?? null,
       principales_objeciones: principalesObjeciones ?? null,
       arras,
-      pipeline: pipeline ?? null,
+      pipeline: pipelineNuevo ?? null,
       contacto_id: contactoId,
       propietario_id: propietarioId,
     };
 
-    console.log("[opportunity-updated] UPDATE PAYLOAD:", updatePayload);
+    console.log("[DIG opportunity-changed] UPDATE PAYLOAD oportunidades:", updatePayload);
 
-    // Ejecuta update
-    await supabaseAdmin
+    // Ejecuta update en OPORTUNIDADES
+    const { error: updateError } = await supabaseAdmin
       .from("oportunidades")
       .update(updatePayload)
       .eq("hl_opportunity_id", hlOpportunityId);
 
-    console.log("[opportunity-updated] UPDATE OK");
+    if (updateError) {
+      console.error("[DIG opportunity-changed] Error actualizando oportunidad:", updateError);
+      return NextResponse.json(
+        { ok: false, error: "Error actualizando oportunidad" },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ ok: true, updated: true }, { status: 200 });
+    console.log("[DIG opportunity-changed] UPDATE OK en oportunidades");
+
+    // ====== LÓGICA NUEVA: Registrar cambio de pipeline ======
+    let pipelineChanged = false;
+    let cambiosPipelineId: string | null = null;
+
+    // Solo registramos cambio si tenemos ambos valores y son distintos
+    if (pipelineAnterior && pipelineNuevo && pipelineAnterior !== pipelineNuevo) {
+      pipelineChanged = true;
+
+      const cambioPayload: Record<string, unknown> = {
+        oportunidad: oportunidadId,
+        estado: estado ?? null,
+        pipeline_origen: pipelineAnterior,
+        pipeline_destino: pipelineNuevo,
+      };
+
+      console.log(
+        "[DIG opportunity-changed] Cambio de pipeline detectado. insertPayload cambios_pipeline =",
+        cambioPayload
+      );
+
+      const { data: cambioInserted, error: cambioError } = await supabaseAdmin
+        .from("cambios_pipeline")
+        .insert(cambioPayload)
+        .select("id")
+        .single();
+
+      if (cambioError) {
+        console.error(
+          "[DIG opportunity-changed] Error insertando en cambios_pipeline:",
+          cambioError
+        );
+        // No rompemos el flujo normal: solo logueamos el error
+      } else {
+        cambiosPipelineId = (cambioInserted?.id as string) ?? null;
+        console.log(
+          "[DIG opportunity-changed] Registro OK en cambios_pipeline, id =",
+          cambiosPipelineId
+        );
+      }
+    } else {
+      console.log(
+        "[DIG opportunity-changed] No se registra cambio de pipeline. Valores:",
+        { pipelineAnterior, pipelineNuevo }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        ok: true,
+        updated: true,
+        oportunidad_id: oportunidadId,
+        pipeline_changed: pipelineChanged,
+        cambios_pipeline_id: cambiosPipelineId,
+      },
+      { status: 200 }
+    );
   } catch (err) {
-    console.error("[opportunity-updated] ERROR:", err);
+    console.error("[DIG opportunity-changed] ERROR INESPERADO:", err);
     return NextResponse.json({ ok: false, error: "error interno" }, { status: 500 });
   }
 }
