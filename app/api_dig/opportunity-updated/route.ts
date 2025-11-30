@@ -231,11 +231,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     console.log("[DIG opportunity-changed] UPDATE OK en oportunidades");
 
-    // ====== LÓGICA NUEVA: Registrar cambio de pipeline ======
+    // ====== LÓGICA CAMBIO DE PIPELINE (SIEMPRE, SIN FILTRAR POR ESTADO) ======
     let pipelineChanged = false;
     let cambiosPipelineId: string | null = null;
 
-    // Solo registramos cambio si tenemos ambos valores y son distintos
+    // Antes probablemente filtrabas por estado = 'open'.
+    // Ahora SOLO verificamos si el pipeline realmente cambió.
     if (pipelineAnterior && pipelineNuevo && pipelineAnterior !== pipelineNuevo) {
       pipelineChanged = true;
 
