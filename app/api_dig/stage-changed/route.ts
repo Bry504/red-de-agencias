@@ -26,23 +26,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function getStringField(
+function getString(
   obj: Record<string, unknown> | null | undefined,
   key: string
 ): string | null {
   if (!obj) return null;
-  const value = obj[key];
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed === '' ? null : trimmed;
+  const v = obj[key];
+  if (typeof v === 'string') {
+    const t = v.trim();
+    return t === '' ? null : t;
   }
   return null;
 }
 
-interface StageChangedPayloadClean {
+// Payload limpio
+interface PayloadClean {
   hl_opportunity_id: string;
   propietario_ghl_id: string | null;
-  etapa_origen: string | null;
   etapa_destino: string | null;
   pipeline: string | null;
 }
@@ -53,22 +53,15 @@ interface StageChangedPayloadClean {
 export async function POST(req: NextRequest) {
   try {
     // --------------------------------------------------
-    // 1) Validar token ?token=...
+    // 1) Validar token
     // --------------------------------------------------
     const url = new URL(req.url);
     const tokenFromQuery = url.searchParams.get('token');
 
-    console.log('[DIG stage-changed] token query =', tokenFromQuery);
-
     if (!WEBHOOK_TOKEN || !tokenFromQuery || tokenFromQuery !== WEBHOOK_TOKEN) {
-      console.warn(
-        '[DIG stage-changed] Token inválido:',
-        tokenFromQuery,
-        'esperado:',
-        WEBHOOK_TOKEN ? '(definido)' : '(VACÍO)'
-      );
+      console.warn('[stage-changed] Token inválido:', tokenFromQuery);
       return NextResponse.json(
-        { ok: false, error: 'Unauthorized: invalid token' },
+        { ok: false, error: 'Unauthorized token' },
         { status: 401 }
       );
     }
@@ -79,254 +72,177 @@ export async function POST(req: NextRequest) {
     const rawBody: unknown = await req.json().catch(() => null);
 
     if (!isRecord(rawBody)) {
-      console.error('[DIG stage-changed] Body no es objeto:', rawBody);
+      console.error('[stage-changed] Body inválido:', rawBody);
       return NextResponse.json(
-        { ok: false, error: 'Invalid payload format' },
+        { ok: false, error: 'Invalid body' },
         { status: 400 }
       );
     }
 
     const root = rawBody;
 
-    // --------------------------------------------------
-    // 3) Extraer opportunity y customData si existen
-    // --------------------------------------------------
+    console.log('[stage-changed] Payload recibido:', JSON.stringify(root, null, 2));
+
     let opportunityObj: Record<string, unknown> = {};
-    if ('opportunity' in root && isRecord(root['opportunity'])) {
-      opportunityObj = root['opportunity'] as Record<string, unknown>;
-    }
+    if (isRecord(root.opportunity)) opportunityObj = root.opportunity;
 
     let customData: Record<string, unknown> = {};
-    if ('customData' in root && isRecord(root['customData'])) {
-      customData = root['customData'] as Record<string, unknown>;
-    }
-
-    console.log(
-      '[DIG stage-changed] root =',
-      JSON.stringify(root, null, 2)
-    );
-    console.log(
-      '[DIG stage-changed] opportunity =',
-      JSON.stringify(opportunityObj, null, 2)
-    );
-    console.log(
-      '[DIG stage-changed] customData =',
-      JSON.stringify(customData, null, 2)
-    );
+    if (isRecord(root.customData)) customData = root.customData;
 
     // --------------------------------------------------
-    // 4) Resolver hl_opportunity_id
+    // 3) Extraer campos LIMPIOS — ignoramos etapa_origen
     // --------------------------------------------------
     let hlOpportunityId =
-      getStringField(customData, 'hl_opportunity_id') ??
-      getStringField(root, 'hl_opportunity_id');
+      getString(customData, 'hl_opportunity_id') ??
+      getString(root, 'hl_opportunity_id') ??
+      getString(opportunityObj, 'id') ??
+      getString(root, 'opportunity_id');
 
     if (!hlOpportunityId) {
-      hlOpportunityId =
-        getStringField(opportunityObj, 'id') ??
-        getStringField(root, 'opportunity_id');
-    }
-
-    if (!hlOpportunityId) {
-      console.error(
-        '[DIG stage-changed] Body sin hl_opportunity_id reconocible:',
-        root
-      );
+      console.error('[stage-changed] No viene hl_opportunity_id');
       return NextResponse.json(
         { ok: false, error: 'Missing hl_opportunity_id' },
         { status: 400 }
       );
     }
 
-    // --------------------------------------------------
-    // 5) Limpiar campos que nos interesan
-    // --------------------------------------------------
-    const cleaned: StageChangedPayloadClean = {
+    const cleaned: PayloadClean = {
       hl_opportunity_id: hlOpportunityId,
       propietario_ghl_id:
-        getStringField(customData, 'propietario') ??
-        getStringField(root, 'propietario'),
-      etapa_origen:
-        getStringField(customData, 'etapa_origen') ??
-        getStringField(root, 'etapa_origen'),
+        getString(customData, 'propietario') ??
+        getString(root, 'propietario'),
       etapa_destino:
-        getStringField(customData, 'etapa_destino') ??
-        getStringField(root, 'etapa_destino'),
+        getString(customData, 'etapa_destino') ??
+        getString(root, 'etapa_destino') ??
+        getString(opportunityObj, 'stageName'),
       pipeline:
-        getStringField(customData, 'pipeline') ??
-        getStringField(root, 'pipeline') ??
-        getStringField(opportunityObj, 'pipelineId'),
+        getString(customData, 'pipeline') ??
+        getString(root, 'pipeline') ??
+        getString(opportunityObj, 'pipelineId'),
     };
 
-    console.log('[DIG stage-changed] Campos limpios:', cleaned);
+    console.log('[stage-changed] Cleaned payload:', cleaned);
 
-    let etapaOrigen = cleaned.etapa_origen;
-    const etapaDestino = cleaned.etapa_destino;
-
-    if (!etapaDestino) {
-      console.warn(
-        '[DIG stage-changed] Sin etapa_destino. No se inserta historial.'
-      );
+    if (!cleaned.etapa_destino) {
       return NextResponse.json(
         { ok: false, error: 'Missing etapa_destino' },
         { status: 400 }
       );
     }
 
-    // Regla: NO insertar si destino = "Oportunidad recibida" y origen vacío
-    if (!etapaOrigen && etapaDestino === 'Oportunidad recibida') {
-      console.log(
-        '[DIG stage-changed] Cambio inicial (Oportunidad recibida sin etapa_origen). Se omite porque lo crea Supabase.'
-      );
-      return NextResponse.json({
-        ok: true,
-        skipped: true,
-        reason: 'initial_stage_handled_by_supabase',
-      });
-    }
-
     // --------------------------------------------------
-    // 6) Buscar oportunidad por hl_opportunity_id
+    // 4) Buscar oportunidad en Supabase
     // --------------------------------------------------
-    const { data: oppRow, error: oppError } = await supabase
+    const { data: opp, error: oppErr } = await supabase
       .from('oportunidades')
       .select('id')
       .eq('hl_opportunity_id', cleaned.hl_opportunity_id)
       .maybeSingle();
 
-    if (oppError) {
-      console.error(
-        '[DIG stage-changed] Error buscando oportunidad por hl_opportunity_id:',
-        oppError
-      );
+    if (oppErr) {
+      console.error('[stage-changed] Error buscando oportunidad:', oppErr);
       return NextResponse.json(
-        { ok: false, error: 'supabase_error', details: oppError.message },
+        { ok: false, error: 'supabase_error', detail: oppErr.message },
         { status: 500 }
       );
     }
 
-    if (!oppRow) {
-      console.warn(
-        '[DIG stage-changed] No se encontró oportunidad con hl_opportunity_id =',
-        cleaned.hl_opportunity_id
-      );
+    if (!opp) {
+      console.warn('[stage-changed] Oportunidad no encontrada:', cleaned.hl_opportunity_id);
       return NextResponse.json(
-        {
-          ok: false,
-          error: 'not_found',
-          details: 'No opportunity found for that hl_opportunity_id',
-        },
+        { ok: false, error: 'not_found' },
         { status: 404 }
       );
     }
 
-    const oportunidadId = oppRow.id as string;
+    const oportunidadId = opp.id;
+    console.log('[stage-changed] Oportunidad encontrada:', oportunidadId);
 
     // --------------------------------------------------
-    // 7) Si no viene etapa_origen, usar última etapa_destino previa
+    // 5) Obtener última etapa registrada en historial_etapas
     // --------------------------------------------------
-    if (!etapaOrigen) {
-      const { data: lastStage, error: lastStageError } = await supabase
-        .from('historial_etapas')
-        .select('etapa_destino')
-        .eq('oportunidad', oportunidadId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const { data: last, error: lastErr } = await supabase
+      .from('historial_etapas')
+      .select('etapa_destino')
+      .eq('oportunidad', oportunidadId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-      if (lastStageError) {
-        console.error(
-          '[DIG stage-changed] Error obteniendo última etapa previa:',
-          lastStageError
-        );
-      } else if (lastStage && lastStage.etapa_destino) {
-        etapaOrigen = lastStage.etapa_destino as string;
-      }
+    let etapaOrigen: string | null = null;
+
+    if (last && last.etapa_destino) {
+      etapaOrigen = last.etapa_destino as string;
     }
 
+    console.log('[stage-changed] Última etapa previa:', etapaOrigen);
+
     // --------------------------------------------------
-    // 8) Resolver propietario (usuarios.ghl_id -> usuarios.id)
+    // 6) Resolver propietario
     // --------------------------------------------------
     let propietarioId: string | null = null;
 
     if (cleaned.propietario_ghl_id) {
-      const { data: usuarioRow, error: usuarioError } = await supabase
+      const { data: usuario, error: userErr } = await supabase
         .from('usuarios')
         .select('id')
         .eq('ghl_id', cleaned.propietario_ghl_id)
         .maybeSingle();
 
-      if (usuarioError) {
-        console.error(
-          '[DIG stage-changed] Error buscando propietario en usuarios:',
-          usuarioError
-        );
-      } else if (usuarioRow?.id) {
-        propietarioId = usuarioRow.id as string;
+      if (!userErr && usuario?.id) {
+        propietarioId = usuario.id as string;
       } else {
-        console.warn(
-          '[DIG stage-changed] No se encontró usuario con ghl_id =',
-          cleaned.propietario_ghl_id
-        );
+        console.warn('[stage-changed] Propietario GHL no encontrado:', cleaned.propietario_ghl_id);
       }
-    } else {
-      console.warn(
-        '[DIG stage-changed] Payload sin propietario (ghl_id). Se insertará propietario = null.'
-      );
     }
 
     // --------------------------------------------------
-    // 9) Insertar en historial_etapas
+    // 7) Preparar insert en historial_etapas
     // --------------------------------------------------
-    const insertPayload: Record<string, unknown> = {
+    const insertPayload = {
       oportunidad: oportunidadId,
       propietario: propietarioId,
       etapa_origen: etapaOrigen,
-      etapa_destino: etapaDestino,
+      etapa_destino: cleaned.etapa_destino,
       pipeline: cleaned.pipeline,
     };
 
-    console.log(
-      '[DIG stage-changed] insertPayload historial_etapas =',
-      JSON.stringify(insertPayload, null, 2)
-    );
+    console.log('[stage-changed] INSERT PAYLOAD:', JSON.stringify(insertPayload, null, 2));
 
-    const { data: inserted, error: insertError } = await supabase
+    // --------------------------------------------------
+    // 8) Insertar historial
+    // --------------------------------------------------
+    const { data: inserted, error: insertErr } = await supabase
       .from('historial_etapas')
       .insert(insertPayload)
       .select('id')
       .single();
 
-    if (insertError) {
-      console.error(
-        '[DIG stage-changed] Error insertando historial_etapas:',
-        insertError
-      );
+    if (insertErr) {
+      console.error('[stage-changed] Error insertando historial:', insertErr);
       return NextResponse.json(
-        { ok: false, error: 'supabase_error', details: insertError.message },
+        { ok: false, error: 'supabase_error', detail: insertErr.message },
         { status: 500 }
       );
     }
 
-    console.log(
-      '[DIG stage-changed] Insert OK en historial_etapas, id =',
-      inserted?.id ?? null
-    );
+    console.log('[stage-changed] Historial insertado OK:', inserted?.id);
 
     return NextResponse.json(
       {
         ok: true,
-        historial_etapas_id: inserted?.id ?? null,
+        historial_etapas_id: inserted?.id,
         oportunidad: oportunidadId,
-        propietario: propietarioId,
         etapa_origen: etapaOrigen,
-        etapa_destino: etapaDestino,
+        etapa_destino: cleaned.etapa_destino,
         pipeline: cleaned.pipeline,
+        propietario: propietarioId,
       },
       { status: 201 }
     );
+
   } catch (err) {
-    console.error('[DIG stage-changed] Error inesperado:', err);
+    console.error('[stage-changed] ERROR inesperado:', err);
     return NextResponse.json(
       { ok: false, error: 'unexpected_error' },
       { status: 500 }
